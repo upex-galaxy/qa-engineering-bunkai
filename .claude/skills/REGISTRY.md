@@ -1,6 +1,6 @@
 # Skill Registry (auto-generated)
 
-> Generated: `2026-07-31T05:52:01.182Z`
+> Generated: `2026-08-11T20:05:44.322Z`
 > Generator: `bun scripts/build-skill-registry.ts`
 > Protocol: `.claude/skills/agentic-qa-core/references/skill-resolver.md`
 
@@ -8,7 +8,7 @@ This file is the per-session compact-rules cache for the Skill Resolver protocol
 The orchestrator copies one or more `## Skill: <slug>` blocks below into every subagent briefing under `## Project Standards (auto-resolved)`.
 Subagents trust those compact rules and only read the full SKILL.md when explicitly instructed.
 
-Skills indexed: 15
+Skills indexed: 18
 
 ---
 ## Skill: acli
@@ -35,7 +35,7 @@ Skills indexed: 15
 
 **Read full SKILL.md when**: the compact rules above are insufficient (e.g. novel scenario, debugging, or the briefing tells you to load the full skill).
 
-> Source: `.claude/skills/acli/SKILL.md` · phase: `unknown` · extraction strategy: B
+> Source: `.claude\skills\acli\SKILL.md` · phase: `unknown` · extraction strategy: B
 
 ---
 
@@ -55,7 +55,7 @@ Skills indexed: 15
 
 **Read full SKILL.md when**: the compact rules above are insufficient (e.g. novel scenario, debugging, or the briefing tells you to load the full skill).
 
-> Source: `.claude/skills/agentic-qa-core/SKILL.md` · phase: `unknown` · extraction strategy: B
+> Source: `.claude\skills\agentic-qa-core\SKILL.md` · phase: `unknown` · extraction strategy: B
 
 ---
 
@@ -83,7 +83,7 @@ Skills indexed: 15
 
 **Read full SKILL.md when**: the compact rules above are insufficient (e.g. novel scenario, debugging, or the briefing tells you to load the full skill).
 
-> Source: `.claude/skills/agentic-qa-onboard/SKILL.md` · phase: `bootstrap` · extraction strategy: B
+> Source: `.claude\skills\agentic-qa-onboard\SKILL.md` · phase: `bootstrap` · extraction strategy: B
 
 ---
 
@@ -111,7 +111,7 @@ Skills indexed: 15
 
 **Read full SKILL.md when**: the compact rules above are insufficient (e.g. novel scenario, debugging, or the briefing tells you to load the full skill).
 
-> Source: `.claude/skills/bug-screenshot-annotation/SKILL.md` · phase: `unknown` · extraction strategy: B
+> Source: `.claude\skills\bug-screenshot-annotation\SKILL.md` · phase: `unknown` · extraction strategy: B
 
 ---
 
@@ -139,7 +139,7 @@ Skills indexed: 15
 
 **Read full SKILL.md when**: the compact rules above are insufficient (e.g. novel scenario, debugging, or the briefing tells you to load the full skill).
 
-> Source: `.claude/skills/framework-development/SKILL.md` · phase: `unknown` · extraction strategy: B
+> Source: `.claude\skills\framework-development\SKILL.md` · phase: `unknown` · extraction strategy: B
 
 ---
 
@@ -167,7 +167,7 @@ Skills indexed: 15
 
 **Read full SKILL.md when**: the compact rules above are insufficient (e.g. novel scenario, debugging, or the briefing tells you to load the full skill).
 
-> Source: `.claude/skills/git-flow-master/SKILL.md` · phase: `implementation` · extraction strategy: B
+> Source: `.claude\skills\git-flow-master\SKILL.md` · phase: `implementation` · extraction strategy: B
 
 ---
 
@@ -195,7 +195,63 @@ Skills indexed: 15
 
 **Read full SKILL.md when**: the compact rules above are insufficient (e.g. novel scenario, debugging, or the briefing tells you to load the full skill).
 
-> Source: `.claude/skills/judgment-day/SKILL.md` · phase: `unknown` · extraction strategy: B
+> Source: `.claude\skills\judgment-day\SKILL.md` · phase: `unknown` · extraction strategy: B
+
+---
+
+## Skill: playwright-best-practices
+
+**Purpose**: (no description in frontmatter)
+
+**Compact Rules**:
+- ---
+- name: playwright-best-practices
+- description: Use when writing Playwright tests, fixing flaky tests, debugging failures, implementing Page Object Model, configuring CI/CD, optimizing performance, mocking APIs, handling authentication or OAuth, testing accessibility (axe-core), file uploads/downloads, date/time mocking, WebSockets, geolocation, permissions, multi-tab/popup flows, mobile/responsive layouts, touch gestures, GraphQL, error handling, offline mode, multi-user collaboration, third-party services (payments, email verification), console error monitoring, global setup/teardown, test annotations (skip, fixme, slow), test tags (@smoke, @fast, @critical, filtering with --grep), project dependencies, security testing (XSS, CSRF, auth), performance budgets (Web Vitals, Lighthouse), iframes, component testing, canvas/WebGL, service workers/PWA, test coverage, i18n/localization, Electron apps, or browser extension testing. Covers E2E, component, API, visual, accessibility, security, Electron, and extension testing.
+- license: MIT
+- metadata:
+- author: currents.dev
+- version: "1.2"
+- ---
+- This skill provides comprehensive guidance for all aspects of Playwright test development, from writing new tests to debugging and maintaining existing test suites.
+- Consult these references based on what you're doing:
+- **When to use**: Creating new test files, writing test cases, implementing test scenarios
+- **When to use**: Testing mobile devices, touch interactions, responsive layouts
+- **When to use**: Testing WebSockets, geolocation, permissions, multi-tab flows
+- **When to use**: Test failures, element not found, timeouts, unexpected behavior
+- **When to use**: Testing error states, offline mode, network failures, validation
+- (truncated — read full SKILL.md for the rest)
+
+**Read full SKILL.md when**: the compact rules above are insufficient (e.g. novel scenario, debugging, or the briefing tells you to load the full skill).
+
+> Source: `.claude\skills\playwright-best-practices\SKILL.md` · phase: `unknown` · extraction strategy: B
+
+---
+
+## Skill: playwright-cli
+
+**Purpose**: (no description in frontmatter)
+
+**Compact Rules**:
+- ---
+- name: playwright-cli
+- description: Automate browser interactions, test web pages and work with Playwright tests.
+- allowed-tools: Bash(playwright-cli:*) Bash(npx:*) Bash(npm:*)
+- ---
+- playwright-cli open
+- playwright-cli goto https://playwright.dev
+- playwright-cli click e15
+- playwright-cli type "page.click"
+- playwright-cli press Enter
+- playwright-cli screenshot
+- playwright-cli close
+- playwright-cli open
+- playwright-cli open https://example.com/
+- playwright-cli goto https://playwright.dev
+- (truncated — read full SKILL.md for the rest)
+
+**Read full SKILL.md when**: the compact rules above are insufficient (e.g. novel scenario, debugging, or the briefing tells you to load the full skill).
+
+> Source: `.claude\skills\playwright-cli\SKILL.md` · phase: `unknown` · extraction strategy: B
 
 ---
 
@@ -223,7 +279,7 @@ Skills indexed: 15
 
 **Read full SKILL.md when**: the compact rules above are insufficient (e.g. novel scenario, debugging, or the briefing tells you to load the full skill).
 
-> Source: `.claude/skills/pr-review-lead/SKILL.md` · phase: `unknown` · extraction strategy: B
+> Source: `.claude\skills\pr-review-lead\SKILL.md` · phase: `unknown` · extraction strategy: B
 
 ---
 
@@ -251,7 +307,7 @@ Skills indexed: 15
 
 **Read full SKILL.md when**: the compact rules above are insufficient (e.g. novel scenario, debugging, or the briefing tells you to load the full skill).
 
-> Source: `.claude/skills/project-discovery/SKILL.md` · phase: `unknown` · extraction strategy: B
+> Source: `.claude\skills\project-discovery\SKILL.md` · phase: `unknown` · extraction strategy: B
 
 ---
 
@@ -279,7 +335,35 @@ Skills indexed: 15
 
 **Read full SKILL.md when**: the compact rules above are insufficient (e.g. novel scenario, debugging, or the briefing tells you to load the full skill).
 
-> Source: `.claude/skills/regression-testing/SKILL.md` · phase: `unknown` · extraction strategy: B
+> Source: `.claude\skills\regression-testing\SKILL.md` · phase: `unknown` · extraction strategy: B
+
+---
+
+## Skill: resend-cli
+
+**Purpose**: (no description in frontmatter)
+
+**Compact Rules**:
+- ---
+- name: resend-cli
+- description: >
+- Operate the Resend platform from the terminal — send emails (including React Email
+- .tsx templates via --react-email), manage domains, contacts, broadcasts, templates,
+- webhooks, API keys, logs, automations, and events via the `resend` CLI. Use when the
+- user wants to run Resend commands in the shell, scripts, or CI/CD pipelines, or
+- send/preview React Email templates. Always load this skill before running `resend`
+- commands — it contains the non-interactive flag contract and gotchas that prevent
+- silent failures.
+- license: MIT
+- metadata:
+- author: resend
+- version: "2.6.0"
+- homepage: https://resend.com/docs/cli-agents
+- (truncated — read full SKILL.md for the rest)
+
+**Read full SKILL.md when**: the compact rules above are insufficient (e.g. novel scenario, debugging, or the briefing tells you to load the full skill).
+
+> Source: `.claude\skills\resend-cli\SKILL.md` · phase: `unknown` · extraction strategy: B
 
 ---
 
@@ -300,7 +384,7 @@ Skills indexed: 15
 
 **Read full SKILL.md when**: running the batch grooming pipeline, writing the per-Story `shift-left-refinement.md`, or handling the PO/Dev handoff.
 
-> Source: `.claude/skills/shift-left-testing/SKILL.md` · phase: `unknown` · extraction strategy: A
+> Source: `.claude\skills\shift-left-testing\SKILL.md` · phase: `unknown` · extraction strategy: A
 
 ---
 
@@ -328,7 +412,7 @@ Skills indexed: 15
 
 **Read full SKILL.md when**: starting a sprint cold, resuming a session, or handling a bug-triage / batch-sprint flow not covered by the rules above.
 
-> Source: `.claude/skills/sprint-testing/SKILL.md` · phase: `unknown` · extraction strategy: A
+> Source: `.claude\skills\sprint-testing\SKILL.md` · phase: `unknown` · extraction strategy: A
 
 ---
 
@@ -350,7 +434,7 @@ Skills indexed: 15
 
 **Read full SKILL.md when**: writing KATA component code, choosing fixtures for a hybrid flow, or applying the Phase 3 review checklist.
 
-> Source: `.claude/skills/test-automation/SKILL.md` · phase: `unknown` · extraction strategy: A
+> Source: `.claude\skills\test-automation\SKILL.md` · phase: `unknown` · extraction strategy: A
 
 ---
 
@@ -372,7 +456,7 @@ Skills indexed: 15
 
 **Read full SKILL.md when**: resolving TMS modality, computing ROI, writing Gherkin, or wiring US-ATP-ATR-TC traceability links.
 
-> Source: `.claude/skills/test-documentation/SKILL.md` · phase: `unknown` · extraction strategy: A
+> Source: `.claude\skills\test-documentation\SKILL.md` · phase: `unknown` · extraction strategy: A
 
 ---
 
@@ -400,4 +484,4 @@ Skills indexed: 15
 
 **Read full SKILL.md when**: the compact rules above are insufficient (e.g. novel scenario, debugging, or the briefing tells you to load the full skill).
 
-> Source: `.claude/skills/xray-cli/SKILL.md` · phase: `unknown` · extraction strategy: B
+> Source: `.claude\skills\xray-cli\SKILL.md` · phase: `unknown` · extraction strategy: B

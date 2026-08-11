@@ -619,8 +619,9 @@ const LINK_TYPE_SUBFIELDS = new Set(['name', 'outward', 'inward', 'fallback']);
 const JIRA_RESERVED_SLUGS = new Set(['work_type', 'status', 'transition', 'link_types']);
 
 function isAllowlisted(varName: string, filePath: string): boolean {
+  const normalized = filePath.replace(/\\/g, '/');
   return DOC_META_ALLOWLIST.some(
-    ([allowedName, fileSub]) => allowedName === varName && filePath.includes(fileSub),
+    ([allowedName, fileSub]) => allowedName === varName && normalized.includes(fileSub),
   );
 }
 
