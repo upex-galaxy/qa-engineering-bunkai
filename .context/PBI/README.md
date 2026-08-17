@@ -69,3 +69,31 @@ Custom-field content (ACs, ATP/ATR, scope, business rules, comments) is **only**
 - **Prefix**: Jira project key — `{{PROJECT_KEY}}-` (declared in `.agents/project.yaml`).
 - **Names**: kebab-case for file names; `EPIC-` / `STORY-` / `DEFECT-` prefixes on folders per the canonical tree.
 - **Evidence**: `evidence/` holds ephemeral screenshots/logs (gitignored).
+
+## Issue Tracker Connection
+
+- **Tool:** Jira Cloud.
+- **Project key:** `BK`.
+- **Instance:** `jira.upexgalaxy.com` — every synced `.md` in this tree links back via `https://jira.upexgalaxy.com/browse/<KEY>`. `.agents/project.yaml` → `issue_tracker.atlassian_url` records the underlying Atlassian site as `https://upexgalaxy71.atlassian.net/` (same tenant, custom domain — `ATLASSIAN_URL` in `.env` is the credential source of truth).
+- **TMS Modality:** `jira-native` (no Xray). Confirmed directly in a synced ATP header (`STORY-BK-2-.../acceptance-test-plan.md`: `TMS Modality: jira-native (no Xray) — user-confirmed 2026-05-27`) and corroborated by the "TMS Modality jira-native fields (no Xray)" block in `.agents/jira-required.yaml`. ATP/ATR live as Story/Bug custom fields (`✅ Acceptance Criteria (Gherkin)` = `customfield_10097`, `🧪 Acceptance Test Plan (ATP)` = `customfield_10067`, `🧪 Acceptance Test Results (ATR)` = `customfield_10124`) — not separate Xray Test Plan / Test Execution issues. `[TMS_TOOL]` resolves to `/acli` for this project, never `/xray-cli`.
+- **Access method:** primary `/acli` skill (CLI) for issue reads/writes/transitions/links; detailed custom-field content (ACs, ATP/ATR, business rules, comments) via `bun run jira:sync-issues get <KEY> --include-comments` — `acli view` returns `null` for `customfield_*`.
+- **Credentials:** `.env` → `ATLASSIAN_URL`, `ATLASSIAN_EMAIL`, `ATLASSIAN_API_TOKEN`. No `JIRA_*` aliases exist for this project. Never paste tokens in markdown.
+- **Sync tooling:** `scripts/sync-jira-issues.ts`, invoked as `bun run jira:sync-issues get <KEY> --include-comments`, `bun run jira:sync-issues jql "<query>"`, or `bun run jira:sync-issues pull --epic <KEY>` (see flags in `CLAUDE.md` §9 — `--sprint`, `--types`, `--no-defects`, `--project`).
+
+## Common Queries
+
+Status names below are verbatim from `.agents/jira-workflows.json` (workflow `UPEX Feature (US) Workflow` for Story, `UPEX BUG/DEFECT LIFE CYCLE` for Bug) — do not abbreviate or normalize them.
+
+| Need | JQL |
+|---|---|
+| Active-sprint Stories ready for QA | `project = BK AND type = Story AND sprint in openSprints() AND status = "Ready For QA"` |
+| Backlog Stories for shift-left grooming | `project = BK AND type = Story AND status = "Backlog"` |
+| Open bugs (excludes Closed / Cannot Reproduce / ABORTED) | `project = BK AND type = Bug AND status not in ("Closed", "Cannot Reproduce", "ABORTED") ORDER BY priority DESC` |
+| My Stories currently in testing | `project = BK AND type = Story AND status = "In Test" AND assignee = currentUser()` |
+| Recently updated (any type, last 24h) | `project = BK AND updated >= -1d ORDER BY updated DESC` |
+
+Resolve via `[ISSUE_TRACKER_TOOL]` (`/acli`) for issue-level results; for full custom-field content on the matched issues, follow up with `bun run jira:sync-issues jql "<query>"`.
+
+## Discovery Gaps
+
+- None for the connection recipe or query set above — project key, instance domain, TMS modality, and all status names are grounded in real synced files (`STORY-BK-2-.../story.md`, `.../acceptance-test-plan.md`) or committed catalogs (`.agents/project.yaml`, `.agents/jira-fields.json`, `.agents/jira-workflows.json`). If a future workflow change renames or adds a status, update the table above and re-verify against `.agents/jira-workflows.json` rather than guessing.

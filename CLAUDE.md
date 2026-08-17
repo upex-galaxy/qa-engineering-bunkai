@@ -443,4 +443,59 @@ Self-check after every task: *did I make decision, fix bug, learn something non-
 
 ---
 
+## Project Assessment (Phase 1)
+
+> Target repo assessed: `upex-bunkai-tms` (Bunkai TMS). Produced by `/project-discovery` Phase 1, sub-step 2 (Project Assessment). Read-only against the target — no files were modified in `upex-bunkai-tms`.
+
+Assessment Date: 2026-08-17
+
+### Testing Maturity: 2/4 (Moderate)
+- Current state: Unit + integration coverage is real and broad, but there is no in-repo E2E automation and no CI enforcement of the suite.
+- Test files: 134 (`*.test.ts`, colocated next to source under `lib/`, e.g. `lib/atcs/*.test.ts`, `lib/runs/*.test.ts`, `lib/bugs/*.test.ts`) — Found in: `find upex-bunkai-tms -name "*.test.ts" | wc -l`.
+- Frameworks: Bun's built-in test runner (`bun:test`) — Found in: `upex-bunkai-tms/lib/modules/path.test.ts:2` (`import { describe, expect, test } from 'bun:test'`). No Jest/Vitest/Playwright dependency present in `upex-bunkai-tms/package.json`.
+- Coverage: unknown — no coverage tooling/config detected, no `bun test --coverage` script wired.
+- No E2E/browser-automation suite exists inside the target repo itself (`components/tests` and `lib/tests` are directories named after the product's **Test** domain entity, not an E2E test harness). This is architecturally expected — Found in: `upex-bunkai-tms/README.md` §"What this is" ("The testing half ... lives in agentic-qa-boilerplate. Pair them or use one."), i.e. this QA repo is the intended home for E2E/regression automation against Bunkai.
+
+### Documentation State: Good (uneven — see nuance)
+- README: yes, present and thorough, but it documents the **agentic-dev-boilerplate scaffolding framework** the app was built with, not the Bunkai product itself (0 product-specific routing/feature content) — Found in: `upex-bunkai-tms/README.md` (full content is scaffolder/skills documentation).
+- Product docs: extensive and product-specific, but live under `.context/`, not the root README — Found in: `upex-bunkai-tms/.context/PRD/executive-summary.md`, `.context/business/business-model.md`, `.context/business/domain-glossary.md`, `.context/SRS/architecture-specs.md`.
+- API docs: yes — OpenAPI generated from Zod schemas + Scalar API reference UI — Found in: `upex-bunkai-tms/lib/openapi/registry.ts`, `upex-bunkai-tms/app/api/docs/`.
+- Architecture: yes — `.context/SRS/architecture-specs.md` plus 12 ratified ADRs — Found in: `upex-bunkai-tms/.context/ADR/ADR-0001-unified-api-authentication.md` through `ADR-0012-rpc-authorization-invariant.md`.
+- Setup guide: yes — `upex-bunkai-tms/README.md` §Prerequisites + `INSTALLER.md`.
+- Nuance: `CONTEXT.md` (0 product mentions) and most of `CLAUDE.md` are still the generic template content, not customized to Bunkai beyond one project-specific rule (#18, AI-led decision authority) — Found in: `grep -c "Bunkai" upex-bunkai-tms/CONTEXT.md` → 0; `grep -c "Bunkai" upex-bunkai-tms/CLAUDE.md` → 1.
+
+### Code Quality
+- [x] ESLint: configured — `@antfu/eslint-config` + `@next/eslint-plugin-next`, `upex-bunkai-tms/eslint.config.js`
+- [x] Prettier: configured — `upex-bunkai-tms/.prettierrc` (semi, singleQuote, printWidth 100)
+- [x] TypeScript: strict — `upex-bunkai-tms/tsconfig.json` (`"strict": true`)
+- [x] Pre-commit hooks: configured — Husky + lint-staged. `pre-commit` runs `lint-staged`, `types:check`, `vars:check`, `skills:check` (+ conditional `skills:registry:check`); `pre-push` runs `format:check`, `lint:check`, `vars:env:check`, `skills:registry:check` — Found in: `upex-bunkai-tms/.husky/pre-commit`, `upex-bunkai-tms/.husky/pre-push`. **Neither hook runs the test suite** (no `bun test` invocation in either file, and no `test` script exists in `package.json`).
+
+### CI/CD Maturity: None (no GitHub Actions detected)
+- No `.github/workflows/` directory exists in the target repo — Found in: direct `ls upex-bunkai-tms/.github/workflows/` → "No such file or directory".
+- No `vercel.json` found either; deploys presumably run through Vercel's own git-integration pipeline (staging/production Vercel aliases are declared in `.agents/project.yaml`), but this was not independently confirmed — Discovery Gap.
+
+### Identified Risks
+
+| Risk | Severity | Mitigation |
+|------|----------|------------|
+| Test suite (134 files) is never run automatically — no CI, no test step in pre-commit/pre-push hooks | MEDIUM | Wire `bun test` into `pre-push` or add a minimal CI workflow; until then, regressions can merge undetected by the QA repo's automation |
+| No E2E/browser-automation coverage inside the target repo | LOW (expected split) | By design, delegated to this companion QA repo (`agentic-qa-boilerplate` lineage) — confirm this is still the intended division of labor with the team |
+| `.agents/project.yaml` environment/domain values disagree between the two repos (see `.context/project-config.md` §Environments "Conflict found") | MEDIUM | Needs a human decision on which environment set is authoritative for QA session targeting before `/adapt-framework` or live-environment testing runs |
+| Root `README.md`/`CONTEXT.md` in the target repo describe the generic scaffolding framework, not the Bunkai product | LOW | Not a defect — product docs live under `.context/`; noted so future sessions don't mistake the root README for product documentation |
+
+No HIGH-severity risks were found this session (no hardcoded secrets detected in `app/`, `lib/`, `components/`; no missing-tests condition — tests exist and are substantial). `.context/risk-assessment.md` was therefore not created, per the Phase 1 doctrine's "only write it when HIGH risks exist" rule.
+
+### Phase Prioritization
+
+- Phase 1: Normal — target repo already carries its own extensive `.context/` (PRD, SRS, business, ADRs, PBI cache), which sped up this discovery significantly and can be leaned on (with independent verification) in later phases.
+- Phase 2: Normal — architecture and functional specs are already well documented in the target's own `SRS/`; largely a verification/cross-reference pass rather than reverse-engineering from zero.
+- Phase 3: Normal — infrastructure is straightforward (Next.js on Vercel + single Supabase project across environments); main open item is confirming the CI/deploy gate mechanics (Discovery Gap above).
+- Phase 4: Normal — Jira project `BK` is already active with a substantial synced backlog cache under `upex-bunkai-tms/.context/PBI/` (epics, stories, bugs, defects, test artifacts), so backlog-mapping conventions are largely already established.
+
+### Blockers
+- [ ] Database access (`[DB_TOOL]` / DBHub MCP) was not exercised this session — live schema was not queried to confirm it matches the 68 migration files on disk.
+- [ ] Environment/domain conflict between this repo's and the target repo's `.agents/project.yaml` (see above) needs a human decision before environment-targeted QA work begins.
+
+---
+
 *AI persistent memory. Update when behaviors / skills / rules change.*

@@ -103,6 +103,8 @@ const DOC_META_ALLOWLIST: Array<[string, string]> = [
   ['VAR_NAME', 'resend-cli/references/templates.md'],
   ['NAME', 'resend-cli/references/workflows.md'],
   ['PLAN', 'resend-cli/references/workflows.md'],
+  // §Scripts table documents the vars:check script itself: "`{{VAR}}` template lint"
+  ['VAR', '.context/infrastructure/backend.md'],
 ];
 
 // -----------------------------------------------------------------------------
