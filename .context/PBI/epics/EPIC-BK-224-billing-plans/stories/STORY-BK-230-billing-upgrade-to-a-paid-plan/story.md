@@ -3,9 +3,9 @@
 **Jira Key:** [BK-230](https://jira.upexgalaxy.com/browse/BK-230)
 **Epic:** [BK-224](https://jira.upexgalaxy.com/browse/BK-224) (Billing & Plans)
 **Type:** Story
-**Status:** Shift-Left QA
+**Status:** Ready For Dev
 **Priority:** Medium
-**Story Points:** -
+**Story Points:** 13
 
 ---
 
@@ -81,7 +81,7 @@ The self-serve conversion path for Bunkai Cloud. From the Billing section (or fr
 ## Metadata
 
 - **Created:** 11/7/2026
-- **Updated:** 17/8/2026
+- **Updated:** 19/8/2026
 - **Reporter:** Ely
 - **Assignee:** Carlos C
 - **Labels:** shift-left-2026-08-17, shift-left-reviewed
