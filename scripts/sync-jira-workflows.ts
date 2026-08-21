@@ -44,8 +44,10 @@
  * ENVIRONMENT
  * ============================================================================
  *
+ * Instance host — NOT an env var. Resolved from `.agents/project.yaml` ->
+ * `issue_tracker.atlassian_url` (see `cli/lib/atlassian-instance.ts`).
+ *
  * Required environment variables (same as `scripts/sync-jira-fields.ts`):
- *   ATLASSIAN_URL=https://your-instance.atlassian.net
  *   ATLASSIAN_EMAIL=your-email@example.com
  *   ATLASSIAN_API_TOKEN=ATATT3x...
  *
@@ -78,6 +80,12 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { input, select } from '@inquirer/prompts';
+
+import {
+  formatInstanceMismatchWarning,
+  instanceSourceLabel,
+  resolveAtlassianInstance,
+} from '../cli/lib/atlassian-instance';
 
 // ============================================================================
 // CONSTANTS
@@ -353,8 +361,11 @@ FLAGS:
                        Source: ${UPEX_UPSTREAM_URL}
   --help, -h           Show this help.
 
+INSTANCE HOST (not an env var):
+  .agents/project.yaml -> issue_tracker.atlassian_url
+  Print it with: bun run --silent jira:url
+
 ENVIRONMENT:
-  ATLASSIAN_URL          e.g. https://your-instance.atlassian.net
   ATLASSIAN_EMAIL        e.g. you@example.com
   ATLASSIAN_API_TOKEN    Atlassian API token (https://id.atlassian.com/manage-profile/security/api-tokens)
 
@@ -399,12 +410,28 @@ NOTES:
 // ============================================================================
 
 function loadConfig(): Config {
-  const baseUrl = process.env.ATLASSIAN_URL;
+  // Instance host: `.agents/project.yaml` first, `ATLASSIAN_URL` only as fallback.
+  // This script overwrites the versioned `.agents/jira-workflows.json` catalog, so a
+  // stale host silently replaces it with another site's statuses and transition IDs —
+  // every `{{jira.transition.*}}` reference would then target the wrong workflow.
+  // Rationale: cli/lib/atlassian-instance.ts.
+  let instance;
+  try {
+    instance = resolveAtlassianInstance();
+  }
+  catch (err) {
+    log.error((err as Error).message);
+    process.exit(1);
+  }
+
+  const warning = formatInstanceMismatchWarning(instance);
+  if (warning) { log.warn(warning); }
+
+  // Credentials stay env-only — never mirrored into the versioned yaml.
   const email = process.env.ATLASSIAN_EMAIL;
   const apiToken = process.env.ATLASSIAN_API_TOKEN;
 
   const missing: string[] = [];
-  if (!baseUrl) { missing.push('ATLASSIAN_URL'); }
   if (!email) { missing.push('ATLASSIAN_EMAIL'); }
   if (!apiToken) { missing.push('ATLASSIAN_API_TOKEN'); }
 
@@ -415,8 +442,10 @@ function loadConfig(): Config {
     process.exit(1);
   }
 
+  log.info(`Using instance=${instance.baseUrl} (source: ${instanceSourceLabel(instance.source)})`);
+
   return {
-    baseUrl: baseUrl!.replace(/\/$/, ''),
+    baseUrl: instance.baseUrl,
     email: email!,
     apiToken: apiToken!,
   };
