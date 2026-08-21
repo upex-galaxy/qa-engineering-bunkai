@@ -103,8 +103,9 @@ const DOC_META_ALLOWLIST: Array<[string, string]> = [
   ['VAR_NAME', 'resend-cli/references/templates.md'],
   ['NAME', 'resend-cli/references/workflows.md'],
   ['PLAN', 'resend-cli/references/workflows.md'],
-  // §Scripts table documents the vars:check script itself: "`{{VAR}}` template lint"
-  ['VAR', '.context/infrastructure/backend.md'],
+  // .context/infrastructure/backend.md documents package.json scripts in a table;
+  // the `vars:check` row quotes its own `{{VAR}}` target syntax as description text.
+  ['VAR', 'infrastructure/backend.md'],
 ];
 
 // -----------------------------------------------------------------------------
@@ -621,9 +622,12 @@ const LINK_TYPE_SUBFIELDS = new Set(['name', 'outward', 'inward', 'fallback']);
 const JIRA_RESERVED_SLUGS = new Set(['work_type', 'status', 'transition', 'link_types']);
 
 function isAllowlisted(varName: string, filePath: string): boolean {
-  const normalized = filePath.replace(/\\/g, '/');
+  // Allowlist entries are written with forward slashes; `path.join` produces
+  // backslash-separated paths on Windows, so normalize before comparing —
+  // otherwise every entry silently fails to match on that platform.
+  const normalizedPath = filePath.replaceAll('\\', '/');
   return DOC_META_ALLOWLIST.some(
-    ([allowedName, fileSub]) => allowedName === varName && normalized.includes(fileSub),
+    ([allowedName, fileSub]) => allowedName === varName && normalizedPath.includes(fileSub),
   );
 }
 
