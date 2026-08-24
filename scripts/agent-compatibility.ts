@@ -74,6 +74,19 @@ function desiredAliasTarget(paths: CompatibilityPaths, platform: NodeJS.Platform
   return platform === 'win32' ? paths.canonicalSkills : POSIX_CLAUDE_SKILLS_TARGET;
 }
 
+/**
+ * Windows normalizes a symlink's stored target to backslashes even when the
+ * target was created (and is logically) POSIX-relative, e.g. via `platform:
+ * 'linux'` test simulation running on a real Windows filesystem. `readlinkSync`
+ * then returns `..\.agents\skills` instead of `../.agents/skills`, so an exact
+ * string compare against `POSIX_CLAUDE_SKILLS_TARGET` fails despite being the
+ * same path. Same class of bug already fixed in lint-vars.ts's doc-meta
+ * allowlist — normalize before comparing.
+ */
+function toPosixTarget(target: string): string {
+  return target.replace(/\\/g, '/');
+}
+
 function resolvesToCanonical(
   linkPath: string,
   actualTarget: string,
@@ -332,7 +345,7 @@ export function checkAgentCompatibility(
   const actualTarget = readlinkSync(paths.claudeSkills);
   const exactTarget = platform === 'win32'
     ? resolvesToCanonical(paths.claudeSkills, actualTarget, paths.canonicalSkills)
-    : actualTarget === POSIX_CLAUDE_SKILLS_TARGET;
+    : toPosixTarget(actualTarget) === POSIX_CLAUDE_SKILLS_TARGET;
   if (!exactTarget) {
     errors.push(`Claude skills alias has unexpected target: ${actualTarget}`);
     return { ok: false, errors, alias: { path: paths.claudeSkills, target, type, status: 'invalid' } };
@@ -373,7 +386,7 @@ export function repairClaudeSkillsAlias(
     const actualTarget = readlinkSync(paths.claudeSkills);
     const isExpected = platform === 'win32'
       ? resolvesToCanonical(paths.claudeSkills, actualTarget, paths.canonicalSkills)
-      : actualTarget === POSIX_CLAUDE_SKILLS_TARGET;
+      : toPosixTarget(actualTarget) === POSIX_CLAUDE_SKILLS_TARGET;
     if (isExpected) {
       return { path: paths.claudeSkills, target, type, status: 'valid' };
     }
