@@ -216,7 +216,7 @@ Before moving to the SRS half of Phase 2:
 - [ ] `.context/PRD/user-journeys.md` exists, Route Map has all three tables filled in, 3-5 journeys each with Evidence column populated, error paths included.
 - [ ] `.context/business/business-feature-map.md` exists (produced by the `/business-feature-map` command, NOT by this phase). CRUD matrix complete for every core entity in the glossary, FEAT-NNN IDs assigned.
 - [ ] All three PRD docs (executive-summary, user-personas, user-journeys) include a Discovery Gaps section. The feature map has its own gaps section.
-- [ ] `## Phase 2 Progress - PRD` block present in `CLAUDE.md`, checkmarks on the three in-phase docs + a pointer to `business-feature-map.md`.
+- [ ] `## Phase 2 Progress - PRD` block present in `AGENTS.md`, checkmarks on the three in-phase docs + a pointer to `business-feature-map.md`.
 
 Proceed to `phase-2-srs.md` once the gate is met.
 

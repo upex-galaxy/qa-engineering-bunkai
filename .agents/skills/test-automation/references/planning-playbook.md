@@ -24,11 +24,11 @@ Context docs:
   - .context/master-test-plan.md
   - .context/business/business-data-map.md
   - .context/business/business-feature-map.md
-  - .claude/skills/test-automation/references/kata-architecture.md
-  - .claude/skills/test-automation/references/atc-tracing.md
+  - .agents/skills/test-automation/references/kata-architecture.md
+  - .agents/skills/test-automation/references/atc-tracing.md
   - tests/components/<api|ui>/ (existing components — open ONLY when the manifest entry is ambiguous)
   - api/schemas/ (TypeScript types for API tests)
-Project Standards (auto-resolved): <compact rules pulled from .claude/skills/REGISTRY.md per agentic-qa-core/references/skill-resolver.md — authoritative for listed conventions; do not re-read full SKILL.md files>
+Project Standards (auto-resolved): <compact rules pulled from .agents/skills/REGISTRY.md per agentic-qa-core/references/skill-resolver.md — authoritative for listed conventions; do not re-read full SKILL.md files>
 Skills to load: (none — planning skill is loaded by orchestrator already)
 Exact instructions:
   1. Load kata-manifest.json FIRST. Cross-check every candidate Component name against components.api[].name + components.ui[].name; cross-check every candidate ATC ID against components.{api,ui}[].atcs[].id. Treat any match as a reuse signal — never plan a duplicate.
@@ -53,7 +53,7 @@ The orchestrator reads the JSON report, surfaces open_questions to the user if a
 
 Three document types, each tied to a scope. Every scope produces at least `spec.md`; ticket and regression scopes add `automation-plan.md`; complex ATCs add per-ATC specs under `atc/`. All live at the Epic level under `.context/PBI/epics/EPIC-<KEY>-<slug>/test-specs/`.
 
-`test-specs/` is the one `[COMMIT]` island inside an otherwise gitignored Jira cache (`CLAUDE.md` §9). These files describe the **test code**: they must land in the same commit as the code they produce, or a reviewer cannot contrast plan against implementation. That is also the line that decides what belongs here — a Jira `Test` issue holds the test case, an `atc/*.md` holds how to implement it in KATA. Same ID, two documents, two owners.
+`test-specs/` is the one `[COMMIT]` island inside an otherwise gitignored Jira cache (`AGENTS.md` §9). These files describe the **test code**: they must land in the same commit as the code they produce, or a reviewer cannot contrast plan against implementation. That is also the line that decides what belongs here — a Jira `Test` issue holds the test case, an `atc/*.md` holds how to implement it in KATA. Same ID, two documents, two owners.
 
 | Document | Scope that produces it | Location |
 |----------|-----------------------|----------|
@@ -144,7 +144,7 @@ TCs in `spec.md` must reference TMS-generated IDs, never local-only IDs. Before 
 
 > **Prerequisite**: Load `/xray-cli` skill (Modality jira-xray) or `/acli` (Modality jira-native) before executing the TMS commands below.
 
-1. Query the TMS for tests already linked to the ticket (via `[TMS_TOOL] List Tests` — resolve per CLAUDE.md Tool Resolution).
+1. Query the TMS for tests already linked to the ticket (via `[TMS_TOOL] List Tests` — resolve per AGENTS.md Tool Resolution).
 2. **If TCs exist** — consume them as the base for `spec.md`; do not duplicate.
 3. **If TCs are missing** — create them in the TMS first (`[TMS_TOOL] Create Test`), capture the returned IDs, then write `spec.md`.
 4. **If partial** — consume what exists, create the gaps in TMS, write `spec.md` with the combined set.
@@ -453,7 +453,7 @@ Disguised helpers — if the method only does a GET with a status-200 assertion,
 
 ## 9. Using `kata-manifest.json` during planning
 
-`kata-manifest.json` (root) is the authoritative registry of every component and every `@atc('ID')` call in `tests/components/**`. **MUST be loaded before drafting any plan** — Critical Rule #12 in `CLAUDE.md`. The husky pre-commit gate keeps the file fresh, so the manifest is always trustworthy; the file system is not (a freshly added component may exist on disk but the manifest is what reviewers and downstream agents consult).
+`kata-manifest.json` (root) is the authoritative registry of every component and every `@atc('ID')` call in `tests/components/**`. **MUST be loaded before drafting any plan** — Critical Rule #12 in `AGENTS.md`. The husky pre-commit gate keeps the file fresh, so the manifest is always trustworthy; the file system is not (a freshly added component may exist on disk but the manifest is what reviewers and downstream agents consult).
 
 Regenerate when stale: `bun run kata:manifest`. Validate: `bun run kata:manifest:check` (CI-grade; exits 1 if stale).
 

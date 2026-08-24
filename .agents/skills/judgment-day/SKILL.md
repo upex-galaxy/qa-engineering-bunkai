@@ -25,8 +25,8 @@ It is never invoked automatically. Users opt in via explicit trigger.
 Canonical reading order for any AI starting cold on a Judgment Day review. Read in order; stop earlier when the target is small enough that later inputs add no signal.
 
 1. The diff / files / PR / architecture slice under review — the literal target the user named.
-2. `CLAUDE.md` — repo conventions, Critical Rules, behavioral layer (the judges must score against these, not generic best-practice).
-3. `.claude/skills/REGISTRY.md` — skill registry; resolve which project skills apply to the target's file paths + task type, and inject the same `Skills to load before work` block into both judge prompts.
+2. `AGENTS.md` — repo conventions, Critical Rules, behavioral layer (the judges must score against these, not generic best-practice).
+3. `.agents/skills/REGISTRY.md` — skill registry; resolve which project skills apply to the target's file paths + task type, and inject the same `Skills to load before work` block into both judge prompts.
 4. The change's spec / PR description / Jira ticket — the stated intent. Judges score against intent, not their imagined intent.
 5. `references/prompts-and-formats.md` — judge prompts, fix prompts, warning rubric, verdict table format.
 6. Prior judge outputs from earlier rounds (Round 2+ only) — to detect regressions or stale findings vs. new ones.

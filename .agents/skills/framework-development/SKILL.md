@@ -19,7 +19,7 @@ The skill exists because framework-surface changes — new fixture, new layer he
 Canonical reading order for any AI starting cold on a framework-development workflow. Read in order; stop earlier when the change is small enough that later inputs add no signal.
 
 1. `kata-manifest.json` — Component + ATC registry (source of truth per Critical Rule #12). Establishes what already exists before any new fixture API, Page, Api, Steps module, or ATC ID is proposed.
-2. `.claude/skills/test-automation/references/kata-architecture.md` + `.claude/skills/test-automation/references/typescript-patterns.md` — KATA layer flow (TestContext → ApiBase / UiBase → YourApi / YourPage → TestFixture), ATC identity rules, fixture-selection contract, import-alias conventions.
+2. `.agents/skills/test-automation/references/kata-architecture.md` + `.agents/skills/test-automation/references/typescript-patterns.md` — KATA layer flow (TestContext → ApiBase / UiBase → YourApi / YourPage → TestFixture), ATC identity rules, fixture-selection contract, import-alias conventions.
 3. `tests/components/` — current Api / Page / Steps shape; required reading when touching any L2 / L3 surface or adding a fixture consumed by these components.
 4. `cli/install.ts` — installer flow; required reading when evolving the installer, adding install steps, or modifying boilerplate scaffold behavior.
 5. `scripts/sync-openapi.ts` + `api/schemas/` — OpenAPI-derived TypeScript types pipeline; required reading when touching the API contract pipeline, schema generation, or any consumer of generated facades.
@@ -31,7 +31,7 @@ Canonical reading order for any AI starting cold on a framework-development work
 
 > **Orchestration & Session contracts**: this skill follows `agentic-qa-core/references/orchestration-doctrine.md` (mandatory subagent dispatch — main thread is command center) AND `agentic-qa-core/references/session-management.md` (Phase 0 resume check, plan-first persistence at `.session/<skill-slug>/<scope>/`, archive on completion). Phase 0 (resume check) and Phase 1 (plan write) are NOT optional.
 
-This skill is compliant with the doctrine in `CLAUDE.md` §"Orchestration Mode (Subagent Strategy)" and the session contract in `.claude/skills/agentic-qa-core/references/session-management.md`. Every dispatch follows the 7-component briefing format defined in `.claude/skills/agentic-qa-core/references/briefing-template.md`, and the pattern selected per phase matches the decision guide in `.claude/skills/agentic-qa-core/references/dispatch-patterns.md`. The four phases — Plan, Code, Verify, Archive — mirror the shape of `/test-automation` (Plan → Code → Review) extended with an inline Archive step. Phase 0 stays inline because the path self-check + session resume check are short orchestrator decisions that do not benefit from a fresh-context subagent.
+This skill is compliant with the doctrine in `AGENTS.md` §"Orchestration Mode (Subagent Strategy)" and the session contract in `.agents/skills/agentic-qa-core/references/session-management.md`. Every dispatch follows the 7-component briefing format defined in `.agents/skills/agentic-qa-core/references/briefing-template.md`, and the pattern selected per phase matches the decision guide in `.agents/skills/agentic-qa-core/references/dispatch-patterns.md`. The four phases — Plan, Code, Verify, Archive — mirror the shape of `/test-automation` (Plan → Code → Review) extended with an inline Archive step. Phase 0 stays inline because the path self-check + session resume check are short orchestrator decisions that do not benefit from a fresh-context subagent.
 
 **Session scope**: `<change-name>` (kebab-case, user-provided at session start). Session state lives at `.session/framework-development/<change-name>/{plan.md, progress.md}` per `agentic-qa-core/references/session-management.md` §9.
 
@@ -43,14 +43,14 @@ This skill is compliant with the doctrine in `CLAUDE.md` §"Orchestration Mode (
 | Phase 3 — Verify — `bun run test`                  | Parallel (sub-stage) | one Verifier subagent runs the test suite                                                                                                                       |
 | Phase 3 — Verify — `bun run types:check`           | Parallel (sub-stage) | one Verifier subagent runs typecheck                                                                                                                            |
 | Phase 3 — Verify — `bun run lint:check`            | Parallel (sub-stage) | one Verifier subagent runs ESLint                                                                                                                               |
-| Phase 3 — Verify — `bun run skills:check`          | Parallel (sub-stage) | one Verifier subagent runs the skill-registry lint (framework changes can affect `.claude/skills/`, `CLAUDE.md`, `cli/install.ts`)                              |
+| Phase 3 — Verify — `bun run skills:check`          | Parallel (sub-stage) | one Verifier subagent runs the skill-registry lint (framework changes can affect `.agents/skills/`, `AGENTS.md`, `cli/install.ts`)                              |
 | Phase 3 — Aggregation + accept/reject decision     | inline               | orchestrator reads the 4 Verifier reports and decides; on any non-zero exit, presents retry / skip / abort                                                       |
 | Phase 4 — Archive (move plan + progress)           | inline               | orchestrator only; moves `.session/framework-development/<change-name>/` to `.session/.archive/<YYYY-MM-DD>-framework-development-<change-name>/` (two-file dir preserved per `agentic-qa-core/references/session-management.md` §8); references in commit |
 
 - **Plan artifact location**: `.session/framework-development/<change-name>/plan.md`. The `.session/` tree is gitignored — the plan is local, not committed. Recovery on mid-run crash: the file persists; the orchestrator reads it back on the next session via Phase 0 resume check (see `agentic-qa-core/references/session-management.md` §4).
 - **Grace period for legacy path**: prior versions wrote to `.scratch/framework-changes/<change-name>/{plan.md, apply-progress.md}`. Phase 0 also checks the legacy path during the grace period — if found, the orchestrator offers to copy state to the new `.session/...` location before resuming.
-- **Path guardrails injected per dispatch**: every Plan and Code subagent briefing MUST include the line `KATA invariants and ALLOWED/FORBIDDEN paths: .claude/skills/framework-development/references/kata-invariants.md (read §10 before touching any file).` Do NOT inline the path tables — the reference is authoritative.
-- **On any subagent failure**: STOP, return the failing report, do NOT auto-rerun. The orchestrator decides retry / skip / abort. See `.claude/skills/agentic-qa-core/references/orchestration-doctrine.md`.
+- **Path guardrails injected per dispatch**: every Plan and Code subagent briefing MUST include the line `KATA invariants and ALLOWED/FORBIDDEN paths: .agents/skills/framework-development/references/kata-invariants.md (read §10 before touching any file).` Do NOT inline the path tables — the reference is authoritative.
+- **On any subagent failure**: STOP, return the failing report, do NOT auto-rerun. The orchestrator decides retry / skip / abort. See `.agents/skills/agentic-qa-core/references/orchestration-doctrine.md`.
 - **Strict TDD flag** is set in Phase 1's `plan.md` under §"Strict TDD flag". Default OFF. Flipped ON only when the user explicitly opted in. Code phase reads it from the plan; no separate cache needed.
 
 ---
@@ -94,13 +94,13 @@ After Phase 0 passes, run the four-phase pipeline in dependency order. Each suba
 Goal: <one-sentence outcome scoped to this phase>
 
 Context docs:
-  - .claude/skills/framework-development/references/kata-invariants.md
+  - .agents/skills/framework-development/references/kata-invariants.md
   - .session/framework-development/<change-name>/plan.md   (Code phase only)
   - .session/framework-development/<change-name>/progress.md   (Code phase, batches > 1; orchestrator-written, read-only for subagents)
   - <relevant ALLOWED-path files the phase will read or touch>
 
 Project Standards (auto-resolved):
-  <compact-rule blocks pulled from .claude/skills/REGISTRY.md per skill-resolver protocol>
+  <compact-rule blocks pulled from .agents/skills/REGISTRY.md per skill-resolver protocol>
 
 Skills to load: <none by default; orchestrator injects /playwright-best-practices if fixtures/tests, /github-actions-docs if CI YAML>
 
@@ -161,7 +161,7 @@ Dispatch: **Parallel** — four Verifier subagents in the same `<function_calls>
 | V3       | `bun run lint:check`   | exit code, summary   |
 | V4       | `bun run skills:check` | exit code, ERROR/WARN/INFO counts |
 
-`skills:check` is included because framework changes routinely touch `.claude/skills/framework-development/`, `agentic-qa-core/references/`, `CLAUDE.md`, and `cli/install.ts` — every one of those surfaces is read by `scripts/lint-skills.ts` and gated by 10 named checks (tier coherence, anti-leak, stale-path, duplicate-tier, etc.). The other three commands never see this surface; adding the fourth verifier costs one parallel slot and prevents an entire failure class.
+`skills:check` is included because framework changes routinely touch `.agents/skills/framework-development/`, `agentic-qa-core/references/`, `AGENTS.md`, and `cli/install.ts` — every one of those surfaces is read by `scripts/lint-skills.ts` and gated by 10 named checks (tier coherence, anti-leak, stale-path, duplicate-tier, etc.). The other three commands never see this surface; adding the fourth verifier costs one parallel slot and prevents an entire failure class.
 
 After all four return, the orchestrator inline-aggregates:
 

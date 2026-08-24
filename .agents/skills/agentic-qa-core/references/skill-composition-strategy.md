@@ -2,16 +2,16 @@
 
 > **Purpose**: Contract for how this QA boilerplate's AI orchestrator composes project-owned skills with vendored skills and community skills without duplication, conflicts, or false negatives. Also encodes the **anti-leak contract** that gates SDD-* skill chaining behind `framework-development` for users who manually install the SDD bundle.
 >
-> **Home**: `.claude/skills/agentic-qa-core/references/skill-composition-strategy.md` — meta-doctrine consumed by all T1 skills, sibling to `briefing-template.md`, `dispatch-patterns.md`, `orchestration-doctrine.md`.
+> **Home**: `.agents/skills/agentic-qa-core/references/skill-composition-strategy.md` — meta-doctrine consumed by all T1 skills, sibling to `briefing-template.md`, `dispatch-patterns.md`, `orchestration-doctrine.md`.
 >
 > **Status**: v1.1 — `bun run setup` now uses `gentle-ai install --preset minimal` (engram only). SDD-* skills are no longer auto-installed; the anti-leak contract still applies when users manually opt in. `judgment-day` is now vendored into the repo as a T2 skill.
 >
 > **Companion files**:
-> - `CLAUDE.md` (project memory — top-level rules and skill mentions)
-> - `.claude/skills/*/SKILL.md` (per-skill instructions; reference this doc relatively as `agentic-qa-core/references/skill-composition-strategy.md`)
+> - `AGENTS.md` (project memory — top-level rules and skill mentions)
+> - `.agents/skills/*/SKILL.md` (per-skill instructions; reference this doc relatively as `agentic-qa-core/references/skill-composition-strategy.md`)
 > - `cli/install.ts` (installer — declares project-level vs user-level skill installs; source-of-truth for T2/T3/T4 names)
-> - `.claude/skills/agentic-qa-core/references/{briefing-template,dispatch-patterns,orchestration-doctrine}.md` (sibling meta-doctrine references)
-> - `.claude/skills/framework-development/references/kata-invariants.md` (load-bearing reference cited by §4 anti-leak rules)
+> - `.agents/skills/agentic-qa-core/references/{briefing-template,dispatch-patterns,orchestration-doctrine}.md` (sibling meta-doctrine references)
+> - `.agents/skills/framework-development/references/kata-invariants.md` (load-bearing reference cited by §4 anti-leak rules)
 >
 > **Last updated**: 2026-05-13
 
@@ -19,18 +19,18 @@
 
 ## 1. Problem Statement
 
-The repo ships with **11 project-owned workflow skills** + **1 vendored skill** (`.claude/skills/`). The installer (`cli/install.ts`) also installs:
+The repo ships with **11 project-owned workflow skills** + **1 vendored skill** (`.agents/skills/`). The installer (`cli/install.ts`) also installs:
 
 - **Engram only** (user-level via gentle-ai minimal preset): persistent memory binary + MCP adapter. No SDD-* skills, no foundation skills. Users who want the full SDD suite for `/framework-development` work install it manually: `gentle-ai install --components engram,sdd --agent <a>`.
-- **Vendored T2 skill**: `judgment-day` (Apache-2.0, attribution preserved in frontmatter) lives committed under `.claude/skills/judgment-day/`. No upstream dependency.
+- **Vendored T2 skill**: `judgment-day` (Apache-2.0, attribution preserved in frontmatter) lives committed under `.agents/skills/judgment-day/`. No upstream dependency.
 - **3 community skills (project-level)**: `playwright-cli` (Microsoft), `playwright-best-practices` (currents-dev), `resend-cli` (resend).
 - **6 community skills (user-level / global)**: `skill-creator`, `find-skills`, `github-actions-docs`, `brainstorming`, `html-ppt`, `bun`.
 
-Current state (CLAUDE.md): T1 skills named explicitly in §5; T2/T3/T4 mentioned by category. Auto-discovery: zero mechanism. Cross-skill composition: only project-owned sister calls (`sprint-testing` → `test-documentation`, `git-flow-master`).
+Current state (AGENTS.md): T1 skills named explicitly in §5; T2/T3/T4 mentioned by category. Auto-discovery: zero mechanism. Cross-skill composition: only project-owned sister calls (`sprint-testing` → `test-documentation`, `git-flow-master`).
 
 Gaps the strategy resolves:
 
-1. Community user-level skills get deprecated / replaced / renamed by their authors. Naming them in CLAUDE.md is fragile.
+1. Community user-level skills get deprecated / replaced / renamed by their authors. Naming them in AGENTS.md is fragile.
 2. SDD-* skills are seductively useful, but applied per-ticket they double the cost of `test-automation` (which already has Plan → Code → Review). Without a gate, AI orchestrators chain SDD into per-ticket flows, inflating token spend and rewriting per-test specs that should not exist.
 3. No formal contract for when a project-owned skill should "borrow" capabilities from a sister skill (project-level community or user-level community).
 4. SDD bundle is project-dependency level (installed by `install.ts`) but treated as foreign code with no clear ownership of WHEN it may legitimately fire.
@@ -43,18 +43,18 @@ Four tiers. Different discovery and load rules per tier.
 
 | Tier | Location | Examples | Discovery | Load behavior |
 |--|--|--|--|--|
-| **T1 — Project-owned** | `.claude/skills/` (committed) | `agentic-qa-core`, `agentic-qa-onboard`, `acli`, `xray-cli`, `git-flow-master`, `project-discovery`, `shift-left-testing`, `sprint-testing`, `test-documentation`, `test-automation`, `regression-testing`, `framework-development` | Named in CLAUDE.md "Skills" registry | Silent (load on trigger, no ask) |
-| **T2 — Vendored** | `.claude/skills/` (committed, upstream attribution in frontmatter) | `judgment-day` (gentle-ai, Apache-2.0) | Named in CLAUDE.md | Silent on explicit user trigger (`/judgment-day`, `juzgar`) or when cited by host orchestrator (`test-automation` Phase 3, `git-flow-master` pre-PR) |
+| **T1 — Project-owned** | `.agents/skills/` (committed) | `agentic-qa-core`, `agentic-qa-onboard`, `acli`, `xray-cli`, `git-flow-master`, `project-discovery`, `shift-left-testing`, `sprint-testing`, `test-documentation`, `test-automation`, `regression-testing`, `framework-development` | Named in AGENTS.md "Skills" registry | Silent (load on trigger, no ask) |
+| **T2 — Vendored** | `.agents/skills/` (committed, upstream attribution in frontmatter) | `judgment-day` (gentle-ai, Apache-2.0) | Named in AGENTS.md | Silent on explicit user trigger (`/judgment-day`, `juzgar`) or when cited by host orchestrator (`test-automation` Phase 3, `git-flow-master` pre-PR) |
 | **T2-opt — Optional gentle-ai SDD bundle (user-installed)** | `~/.claude/skills/sdd-*` (only if user runs `gentle-ai install --components engram,sdd`) | `sdd-init`, `sdd-explore`, `sdd-propose`, `sdd-spec`, `sdd-design`, `sdd-tasks`, `sdd-apply`, `sdd-verify`, `sdd-archive`, `sdd-onboard` | NOT installed by `bun run setup` (minimal preset = engram only). Discovered at runtime from system-reminder skill list when present | Silent **inside** `framework-development` only — see §4 anti-leak contract. NEVER silent inside `shift-left-testing`, `sprint-testing`, `test-documentation`, `test-automation`, `regression-testing` |
-| **T3 — Community project-level** | `.claude/skills/` (installed by `install.ts` PROJECT_LEVEL_SKILLS, not committed) | `playwright-cli`, `playwright-best-practices`, `resend-cli` | Named **by category** in CLAUDE.md (not by skill name). Discovered at runtime from system-reminder skill list | Silent if matched by category (e.g. user writes a Playwright test → load `playwright-best-practices`) |
-| **T4 — Community user-level** | `~/.claude/skills/` (installed by `install.ts` USER_LEVEL_SKILLS) | `skill-creator`, `find-skills`, `github-actions-docs`, `brainstorming`, `html-ppt`, `bun` | **NOT named in CLAUDE.md**. Discovered at runtime from system-reminder skill list. Auto-match by task domain | **ASK user before load** (may not be installed, or user may not want it for this task) |
+| **T3 — Community project-level** | `.agents/skills/` (installed by `install.ts` PROJECT_LEVEL_SKILLS, not committed) | `playwright-cli`, `playwright-best-practices`, `resend-cli` | Named **by category** in AGENTS.md (not by skill name). Discovered at runtime from system-reminder skill list | Silent if matched by category (e.g. user writes a Playwright test → load `playwright-best-practices`) |
+| **T4 — Community user-level** | `~/.claude/skills/` (installed by `install.ts` USER_LEVEL_SKILLS) | `skill-creator`, `find-skills`, `github-actions-docs`, `brainstorming`, `html-ppt`, `bun` | **NOT named in AGENTS.md**. Discovered at runtime from system-reminder skill list. Auto-match by task domain | **ASK user before load** (may not be installed, or user may not want it for this task) |
 
 ### Tier decision rule
 
 ```
-IF skill is committed in .claude/skills/ AND authored by us            → T1
-ELIF skill is committed in .claude/skills/ AND has vendored_from meta  → T2
-ELIF skill matches sdd-* in user-global .claude/skills/                → T2-opt
+IF skill is committed in .agents/skills/ AND authored by us            → T1
+ELIF skill is committed in .agents/skills/ AND has vendored_from meta  → T2
+ELIF skill matches sdd-* in user-global .agents/skills/                → T2-opt
 ELIF skill is in install.ts PROJECT_LEVEL_SKILLS                       → T3
 ELIF skill is in install.ts USER_LEVEL_SKILLS                          → T4
 ELSE → T4 (unknown community)
@@ -145,8 +145,8 @@ Without the gate, an AI orchestrator handed "QA this user story `UPEX-277`" will
 - `tests/components/` (Layer 2 + 3 base classes + fixtures — the fixture registry lives in `tests/components/TestFixture.ts`; NOT per-module ATCs)
 - `scripts/sync-openapi.ts` and the sync pipeline (NOT generated `types.ts`)
 - `package.json` deps + scripts
-- `.claude/skills/agentic-qa-core/references/`
-- `.claude/skills/framework-development/`
+- `.agents/skills/agentic-qa-core/references/`
+- `.agents/skills/framework-development/`
 - `.claude/commands/` (slash-command source)
 
 ### 4.4 FORBIDDEN paths (anything outside §4.3 — full table in `framework-development/SKILL.md`)
@@ -252,16 +252,16 @@ At runtime, the skill (or orchestrator) scans the available skill list, matches 
 When a new skill is added (or an existing one moved between tiers), apply:
 
 ```
-IF the skill is authored by us AND lives in this repo's .claude/skills/         → T1
-ELIF the skill is vendored upstream into .claude/skills/ (license + attrib)     → T2
+IF the skill is authored by us AND lives in this repo's .agents/skills/         → T1
+ELIF the skill is vendored upstream into .agents/skills/ (license + attrib)     → T2
 ELIF the skill is an opt-in user install (sdd-*, foundation skills)             → T2-opt
 ELIF the skill is a community skill that EVERY clone of this repo needs         → T3 (PROJECT_LEVEL_SKILLS in install.ts)
 ELIF the skill is a community skill useful across many of the user's projects   → T4 (USER_LEVEL_SKILLS in install.ts)
 ```
 
-Promotion path (T4 → T3): when a user-level skill turns out to be load-bearing for THIS repo's QA work and no clone should run without it. Move from `USER_LEVEL_SKILLS` to `PROJECT_LEVEL_SKILLS` in `install.ts` and add a brief note in CLAUDE.md §5.
+Promotion path (T4 → T3): when a user-level skill turns out to be load-bearing for THIS repo's QA work and no clone should run without it. Move from `USER_LEVEL_SKILLS` to `PROJECT_LEVEL_SKILLS` in `install.ts` and add a brief note in AGENTS.md §5.
 
-Demotion path (T3 → T4): when a project-level skill turns out to be useful elsewhere AND no longer load-bearing here. Move and remove from CLAUDE.md.
+Demotion path (T3 → T4): when a project-level skill turns out to be useful elsewhere AND no longer load-bearing here. Move and remove from AGENTS.md.
 
 ---
 
@@ -303,7 +303,7 @@ Demotion path (T3 → T4): when a project-level skill turns out to be useful els
 The four-tier model is not bureaucracy. Each tier solves a real failure:
 
 - **T1 vs T2**: T1 is our doctrine. T2 is a third-party planning bundle. Mixing them means our QA workflows could be silently rewritten by an upstream SDD release. The gate (§4) means SDD only fires where we explicitly authorized it.
-- **T2 vs T3**: T2 is project-dependency-managed by gentle-ai (install via `gentle-ai install --skill ...`). T3 is community-managed via `bunx skills add`. Different install paths, different upgrade cadences, different breakage modes. CLAUDE.md must NOT pretend they are equivalent.
+- **T2 vs T3**: T2 is project-dependency-managed by gentle-ai (install via `gentle-ai install --skill ...`). T3 is community-managed via `bunx skills add`. Different install paths, different upgrade cadences, different breakage modes. AGENTS.md must NOT pretend they are equivalent.
 - **T3 vs T4**: T3 ships with every clone of this repo. T4 may or may not be installed. Asking before T4 use is what prevents "I cleared my `~/.claude/skills/` and now QA is broken" support tickets.
 - **Categories vs names**: Community skill authors rename and abandon things. A QA repo that hardcodes `playwright-best-practices` by exact name breaks the day the author republishes as `playwright-patterns`. Categories survive renames.
 
@@ -314,15 +314,15 @@ The four-tier model is not bureaucracy. Each tier solves a real failure:
 The validation script `scripts/lint-skills.ts` (implemented at `scripts/lint-skills.ts`, wired in `package.json` as `bun run skills:check`). Severity model: ERROR fails CI; WARN and INFO are reported but do not fail. The script MUST:
 
 1. **Scan T1 SKILL.md frontmatter** for `complementary_categories` field. Warn on T1 skills without one (fragile — won't get auto-matched community skills).
-2. **Scan `cli/install.ts`** for the tier arrays (`PROJECT_LEVEL_SKILLS`, `USER_LEVEL_SKILLS`). Cross-check every skill mentioned in CLAUDE.md against its declared tier. The minimal-preset gentle-ai install ships only `engram` — no `SKILL_SLUGS` array to validate.
+2. **Scan `cli/install.ts`** for the tier arrays (`PROJECT_LEVEL_SKILLS`, `USER_LEVEL_SKILLS`). Cross-check every skill mentioned in AGENTS.md against its declared tier. The minimal-preset gentle-ai install ships only `engram` — no `SKILL_SLUGS` array to validate.
 3. **Cross-check §5.1 categories** against T1 frontmatter declarations. Warn on:
    - Orphan categories: declared in §5.1 but no T1 skill cites them.
    - Stale citations: T1 skill cites a category not in §5.1.
 4. **Anti-leak audit**: scan every T1 SKILL.md NOT named `framework-development`. If any of them name `sdd-explore`, `sdd-propose`, `sdd-spec`, `sdd-design`, `sdd-tasks`, `sdd-apply`, `sdd-verify`, `sdd-archive`, `sdd-onboard`, or `sdd-init` in their dispatch table or instructions → ERROR. The anti-leak rule from §4 is violated.
-5. **Tier mismatch audit**: any skill mentioned in CLAUDE.md by name but missing from the matching `cli/install.ts` array → WARN. Suggests the user removed an install but forgot to update CLAUDE.md.
+5. **Tier mismatch audit**: any skill mentioned in AGENTS.md by name but missing from the matching `cli/install.ts` array → WARN. Suggests the user removed an install but forgot to update AGENTS.md.
 6. **Single-skill fragility**: any §5.1 category whose only T3/T4 example is one skill → INFO-level note (not blocking). Suggests adding fallback options when feasible.
-7. **TIER-MISMATCH audit** (WARN): skill named in CLAUDE.md §5 but absent from `cli/install.ts` matching tier array, or present in `cli/install.ts` but absent from CLAUDE.md §5. **T1 + T4 skills exempt** — T1 lives in `.claude/skills/` (surfaced via dir walk, not install.ts); T4 (`USER_LEVEL_SKILLS`) is auto-discovered at runtime and MUST NOT appear in CLAUDE.md §5 by doctrine (see §10 "What Lives Where"). If CLAUDE.md §5 table parsing yields 0 rows (format drift), emits a script-self WARN and skips this check (no false positives).
-8. **STALE-PATH audit** (ERROR): path-like literals in inline backtick spans of T1 SKILL.md bodies (outside fenced code blocks) must resolve to existing files relative to repo root. Prefix-anchored: only paths starting with `.claude/skills/`, `scripts/`, `cli/`, `.agents/`, `tests/`, or `api/` are checked.
+7. **TIER-MISMATCH audit** (WARN): skill named in AGENTS.md §5 but absent from `cli/install.ts` matching tier array, or present in `cli/install.ts` but absent from AGENTS.md §5. **T1 + T4 skills exempt** — T1 lives in `.agents/skills/` (surfaced via dir walk, not install.ts); T4 (`USER_LEVEL_SKILLS`) is auto-discovered at runtime and MUST NOT appear in AGENTS.md §5 by doctrine (see §10 "What Lives Where"). If AGENTS.md §5 table parsing yields 0 rows (format drift), emits a script-self WARN and skips this check (no false positives).
+8. **STALE-PATH audit** (ERROR): path-like literals in inline backtick spans of T1 SKILL.md bodies (outside fenced code blocks) must resolve to existing files relative to repo root. Prefix-anchored: only paths starting with `.agents/skills/`, `scripts/`, `cli/`, `.agents/`, `tests/`, or `api/` are checked.
 9. **EMPTY-CATS discrimination** (INFO sub-case of rule 1): `complementary_categories: []` (key present but empty list) emits INFO instead of ERROR; field entirely absent still emits ERROR. Suggests declaring at least one category from the §5.1 vocabulary.
 10. **DUPLICATE-TIER audit** (ERROR): a skill slug appearing in more than one of `PROJECT_LEVEL_SKILLS`, `USER_LEVEL_SKILLS` in `cli/install.ts` is an install conflict. Violation message names the slug and all conflicting tier arrays.
 
@@ -334,7 +334,7 @@ The script is wired in `package.json` as `"skills:check": "bun run scripts/lint-
 
 ## 10. What Lives Where
 
-| Rule | CLAUDE.md | SKILL.md (per-skill) | This doc (`skill-composition-strategy.md`) |
+| Rule | AGENTS.md | SKILL.md (per-skill) | This doc (`skill-composition-strategy.md`) |
 |--|--|--|--|
 | Skill tier model | Brief mention + link here | — | Authoritative |
 | Skill Composition Protocol | Summary + link | Per-skill `complementary_categories` frontmatter + load behavior | Authoritative full protocol |
@@ -345,7 +345,7 @@ The script is wired in `package.json` as `"skills:check": "bun run scripts/lint-
 | T2 vendored skill names (`judgment-day`) | §5 (named, with citation context) | host skill SKILL.md references it in optional review steps | Reference only |
 | T2-opt SDD bundle names | §5 (named, with anti-leak note + manual-install pointer) | framework-development SKILL.md references SDD skills by name in delegation points | Reference only |
 | T3 skill names (community project-level) | §5 (mention `playwright-cli`, `playwright-best-practices` by name; small list, low fragility) | — | Reference only |
-| T4 skill names (community user-level) | NOT named in CLAUDE.md. Auto-discovered at runtime per this doc | — | Reference only — name list only in installer |
+| T4 skill names (community user-level) | NOT named in AGENTS.md. Auto-discovered at runtime per this doc | — | Reference only — name list only in installer |
 
 ---
 
@@ -358,7 +358,7 @@ The script is wired in `package.json` as `"skills:check": "bun run scripts/lint-
    2. Scan T3 + T4 already installed (via system-reminder list).
    3. If a task domain has no match in steps 1-2 AND the task would benefit significantly from a specialized skill → invoke `find-skills` automatically to suggest installable skills. Ask user before installing.
 
-3. **judgment-day adoption**: ✅ **Vendored T2; available on demand.** Lives committed under `.claude/skills/judgment-day/` (Apache-2.0, attribution preserved). Not auto-invoked. User invokes `/judgment-day` explicitly OR host orchestrators (`test-automation` Phase 3, `git-flow-master` pre-PR) cite it as an optional gate.
+3. **judgment-day adoption**: ✅ **Vendored T2; available on demand.** Lives committed under `.agents/skills/judgment-day/` (Apache-2.0, attribution preserved). Not auto-invoked. User invokes `/judgment-day` explicitly OR host orchestrators (`test-automation` Phase 3, `git-flow-master` pre-PR) cite it as an optional gate.
 
 4. **Gentle-ai bundle scope**: ✅ **Minimal preset (engram only).** No SDD-* skills auto-installed. No foundation skills (`skill-registry`, `branch-pr`, `issue-creation`, `cognitive-doc-design`, `comment-writer`). Rationale: our workflow skills already cover Plan → Code → Verify natively; SDD ceremony does not apply to test authoring. Users who want SDD for framework evolution work install it manually: `gentle-ai install --components engram,sdd --agent <a>`.
 
@@ -374,10 +374,10 @@ The script is wired in `package.json` as `"skills:check": "bun run scripts/lint-
 
 ## 12. Implementation Checklist
 
-- [x] Create `framework-development` skill (`.claude/skills/framework-development/SKILL.md`) with Phase 0 path self-check + ALLOWED/FORBIDDEN tables + SDD chain orchestration + Subagent Dispatch Strategy section.
+- [x] Create `framework-development` skill (`.agents/skills/framework-development/SKILL.md`) with Phase 0 path self-check + ALLOWED/FORBIDDEN tables + SDD chain orchestration + Subagent Dispatch Strategy section.
 - [x] Create `references/kata-invariants.md` under framework-development with INVARIANT vs EXTENSIBLE rules.
 - [x] Create this doc (`agentic-qa-core/references/skill-composition-strategy.md`).
-- [x] Patch `CLAUDE.md`:
+- [x] Patch `AGENTS.md`:
   - [x] Add §5 entry for `framework-development` skill.
   - [x] Add brief "Skill Composition Protocol" pointer to this doc.
   - [x] Add "SDD-* are framework-only" note to the Skills registry table.

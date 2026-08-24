@@ -6,7 +6,7 @@ The first phase of project discovery. Goal: make the project legible. Produces f
 
 ```
 1. Project Connection    -> .context/project-config.md
-2. Project Assessment    -> CLAUDE.md §Project Assessment + .context/risk-assessment.md (if HIGH risks)
+2. Project Assessment    -> AGENTS.md §Project Assessment + .context/risk-assessment.md (if HIGH risks)
 3. Business Model        -> .context/business/business-model.md
 4. Domain Glossary       -> .context/business/domain-glossary.md
 ```
@@ -189,7 +189,7 @@ grep -rE "(api[_-]?key|secret|password|token)\s*[:=]\s*['\"]" <repo-root>/src
 
 ### Output
 
-Append to `CLAUDE.md` (the canonical file — `CLAUDE.md` is a symlink to it) in a `## Project Assessment (Phase 1)` block:
+Append to `AGENTS.md` (the canonical file — `AGENTS.md` is a symlink to it) in a `## Project Assessment (Phase 1)` block:
 
 ```markdown
 ## Project Assessment (Phase 1)
@@ -237,7 +237,7 @@ If HIGH risks exist, also write `.context/risk-assessment.md` with per-risk Seve
 
 ### Completion criteria
 
-- `## Project Assessment (Phase 1)` section present in `CLAUDE.md` (CLAUDE.md is a symlink to it).
+- `## Project Assessment (Phase 1)` section present in canonical `AGENTS.md`.
 - HIGH risks (if any) captured in `.context/risk-assessment.md`.
 
 ---
@@ -375,7 +375,7 @@ Required sections:
 Before proceeding to Phase 2:
 
 - [ ] `.context/project-config.md` exists and is non-empty.
-- [ ] `## Project Assessment (Phase 1)` block present in `CLAUDE.md` (CLAUDE.md is a symlink to it).
+- [ ] `## Project Assessment (Phase 1)` block present in canonical `AGENTS.md`.
 - [ ] `.context/business/business-model.md` exists with real sources cited.
 - [ ] `.context/business/domain-glossary.md` exists with at least Core Entities + Relationships Diagram.
 - [ ] All Discovery Gaps are listed explicitly (no silent skipping).

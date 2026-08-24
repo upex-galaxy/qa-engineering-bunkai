@@ -1,10 +1,10 @@
 # Behavioral Layer — Communication Style
 
-Cacheable mirror of CLAUDE.md communication rules. Cited by every T1 workflow skill via Skill Composition Strategy. Single source of truth — keep canonical text in CLAUDE.md, this file only summarizes + recaps.
+Cacheable mirror of AGENTS.md communication rules. Cited by every T1 workflow skill via Skill Composition Strategy. Single source of truth — keep canonical text in AGENTS.md, this file only summarizes + recaps.
 
 ## Caveman compression (default)
 
-If the `caveman` skill is installed user-level, respond in caveman level `full`. See `CLAUDE.md` §1 #13 for the canonical rule. Brief recap:
+If the `caveman` skill is installed user-level, respond in caveman level `full`. See `AGENTS.md` §1 #13 for the canonical rule. Brief recap:
 
 - Drop articles, fillers, pleasantries.
 - Fragments OK. Short synonyms.
@@ -25,11 +25,11 @@ Default to a terse headline that answers the user's literal question. Then surfa
 
 Caveman compacts WORDS, butler controls INFORMATION GRANULARITY. They compose.
 
-Full canonical text in `CLAUDE.md` §2 EXPANDABLE RESPONSES.
+Full canonical text in `AGENTS.md` §2 EXPANDABLE RESPONSES.
 
 ## Language detection + mirroring
 
-See `CLAUDE.md` §1 #14 for the canonical rule. Brief recap:
+See `AGENTS.md` §1 #14 for the canonical rule. Brief recap:
 
 - Read full user message → detect language → mirror in ALL conversational replies.
 - Repo artifacts (code/commits/PRs/branch names/test names/config values) ALWAYS English.

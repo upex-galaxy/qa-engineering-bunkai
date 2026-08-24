@@ -69,7 +69,7 @@ When the failure list has more than 10 entries, classifying serially burns the o
 ```
 Goal: Classify <N> test failures in chunk <CHUNK_INDEX>/<TOTAL_CHUNKS> against the rubric.
 Context docs:
-  - .claude/skills/regression-testing/references/failure-classification.md (rubric)
+  - .agents/skills/regression-testing/references/failure-classification.md (rubric)
   - <ARTIFACT_PATH>/allure-results/ (raw failure data)
   - .context/regression-history/known-failures.json (if exists — list of KNOWN failures with their classification)
 Skills to load: (none)

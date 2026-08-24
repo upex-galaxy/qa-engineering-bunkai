@@ -1218,7 +1218,7 @@
         </a>
         <a class="cta" href="#section-7">
           <span class="cta-title">Skills catalog</span>
-          <span class="cta-desc">All 12 skills, what they do, when to call them.</span>
+          <span class="cta-desc">All 19 skills, what they do, when to call them.</span>
         </a>
         <a class="cta" href="#section-6">
           <span class="cta-title">Cheat sheet</span>
@@ -1311,8 +1311,8 @@ bunx create-agentic-qa@latest &lt;your-repo-name&gt;</pre
                   <li>Fresh <code>git init -b main</code> + initial commit</li>
                   <li><code>bun install</code></li>
                   <li>
-                    <code>bun run setup</code> — gentle-ai, 12 T1 skills, MCPs, <code>.env</code>,
-                    optional <code>gh repo create</code>
+                    <code>bun run setup</code> — gentle-ai, 19 committed skills, MCPs,
+                    <code>.env</code>, optional <code>gh repo create</code>
                   </li>
                 </ol>
                 <p class="path-card-foot">
@@ -1540,7 +1540,7 @@ git clone … &amp;&amp; bun install &amp;&amp; bun run setup</pre
               traits, strategies, override phrases, suspension triggers, and how to evolve it over
               time. Full reference (with all toggles, examples, and edge cases) lives in
               <a href="ai-personality.md"><code>docs/ai-personality.md</code></a
-              >. It mirrors the runtime contract defined in <code>CLAUDE.md</code> sections 1–3.
+              >. It mirrors the runtime contract defined in <code>AGENTS.md</code> sections 1–3.
             </div>
           </section>
 
@@ -1645,7 +1645,7 @@ git clone … &amp;&amp; bun install &amp;&amp; bun run setup</pre
                       (subagents, decisions, references).
                     </td>
                     <td>
-                      <code>.claude/skills/&lt;name&gt;/SKILL.md</code> + <code>references/</code>
+                      <code>.agents/skills/&lt;name&gt;/SKILL.md</code> + <code>references/</code>
                     </td>
                     <td>
                       The AI auto-activates when your prompt matches the skill's triggers.
@@ -1669,8 +1669,15 @@ git clone … &amp;&amp; bun install &amp;&amp; bun run setup</pre
                         <span class="type-name">Command</span>
                       </div>
                     </td>
-                    <td>Single-file markdown for one-shot, focused utilities.</td>
-                    <td><code>.claude/commands/&lt;name&gt;.md</code></td>
+                    <td>
+                      Generated single-file transport alias — it selects a skill + mode and forwards
+                      your arguments. No workflow of its own.
+                    </td>
+                    <td>
+                      <code>.agents/compatibility/command-aliases.json</code> → generated
+                      <code>.claude/commands/&lt;name&gt;.md</code> +
+                      <code>.opencode/commands/&lt;name&gt;.md</code>
+                    </td>
                     <td>You explicitly type <code>/&lt;name&gt;</code>. No auto-trigger.</td>
                   </tr>
                   <tr>
@@ -1933,14 +1940,14 @@ git clone … &amp;&amp; bun install &amp;&amp; bun run setup</pre
                       <code>bun install</code> → <code>bun run pw:install</code> →
                       <code>bun run agents:setup</code> → <code>bun run jira:sync-fields</code> →
                       <code>bun run jira:sync-workflows</code> → <code>bun run jira:check</code>.
-                      The foundation files (<code>CLAUDE.md</code>, <code>.agents/</code>,
+                      The foundation files (<code>AGENTS.md</code>, <code>.agents/</code>,
                       <code>scripts/</code>) ship with the boilerplate — clone the full repository,
                       do not adopt skills à la carte.
                     </dd>
                     <dt>Produces</dt>
                     <dd>
                       A populated <code>.agents/project.yaml</code>, the canonical
-                      <code>CLAUDE.md</code> at the repo root, the foundation scripts
+                      <code>AGENTS.md</code> at the repo root, the foundation scripts
                       (<code>agents-setup</code>, <code>lint-vars</code>,
                       <code>sync-jira-fields</code>, <code>sync-jira-workflows</code>,
                       <code>check-jira-setup</code>) wired into <code>package.json</code>, the
@@ -2095,7 +2102,7 @@ bun run jira:check            # verify both catalogs against the manifest</code>
                   <dl>
                     <dt>Trigger</dt>
                     <dd>
-                      When <code>.context/</code>, <code>CLAUDE.md</code>, or
+                      When <code>.context/</code>, <code>AGENTS.md</code>, or
                       <code>.agents/</code> drifts from reality (the target shipped new modules, new
                       Jira fields, new endpoints).
                     </dd>
@@ -2105,7 +2112,7 @@ bun run jira:check            # verify both catalogs against the manifest</code>
                       <ul>
                         <li>
                           <code>/sync-ai-memory</code> — syncs all AI-critical docs
-                          (<code>CLAUDE.md</code>, <code>README.md</code>,
+                          (<code>AGENTS.md</code>, <code>README.md</code>,
                           <code>INSTALLER.md</code>, <code>CONTEXT.md</code>, <code>docs/**</code>,
                           and this onboarding page) against current <code>.context/</code> and
                           <code>package.json</code>.
@@ -2195,7 +2202,7 @@ bun run jira:check            # verify both catalogs against the manifest</code>
                       longer reflect the project state.
                     </td>
                     <td>
-                      Syncs all AI-critical documents (<code>CLAUDE.md</code>,
+                      Syncs all AI-critical documents (<code>AGENTS.md</code>,
                       <code>README.md</code>, <code>INSTALLER.md</code>, <code>CONTEXT.md</code>,
                       <code>docs/*.md</code>, this onboarding page) against current
                       <code>.context/</code> and <code>package.json</code>. Touches project-specific
@@ -2783,7 +2790,7 @@ bun run jira:check            # verify both catalogs against the manifest</code>
               >), and the subagent loads tool skills (<code>/acli</code>, <code>/xray-cli</code>,
               <code>/playwright-cli</code>) to actually run shell commands. The
               <em>Project Standards</em> block is pre-extracted by the orchestrator from
-              <code>.claude/skills/REGISTRY.md</code> (built by
+              <code>.agents/skills/REGISTRY.md</code> (built by
               <code>bun run skills:registry</code>) so subagents trust the compact rules and skip
               re-reading every full <code>SKILL.md</code>. This is what keeps the main conversation
               lean — the heavy reading happens inside subagents.
@@ -2823,7 +2830,7 @@ bun run jira:check            # verify both catalogs against the manifest</code>
               the skill carries the binary's flag catalog, auth flow, pagination quirks, and error
               semantics. The orchestrator checks the mapping before each
               <code>Bash</code> call and loads the missing skill if needed. Source-of-truth:
-              <code>CLAUDE.md</code> §6.5 + <code>cli/install.ts</code>.
+              <code>AGENTS.md</code> §6.5 + <code>cli/install.ts</code>.
             </p>
 
             <div class="table-wrap">
@@ -3089,7 +3096,7 @@ bun run jira:check            # verify both catalogs against the manifest</code>
             <h2><span class="num">6.</span>Cheat sheet — "I want X, I run Y"</h2>
 
             <p>
-              Every command below exists in <code>.claude/skills/</code>,
+              Every command below exists in <code>.agents/skills/</code>,
               <code>.claude/commands/</code>, or <code>package.json</code>. None are placeholders.
             </p>
 
@@ -3208,14 +3215,14 @@ bun run jira:check            # verify both catalogs against the manifest</code>
             <h2><span class="num">7.</span>Skills catalog</h2>
 
             <p>
-              Every <strong>T1</strong> skill that ships committed in <code>.claude/skills/</code> —
+              Every <strong>T1</strong> skill that ships committed in <code>.agents/skills/</code> —
               the skills <em>we</em> maintain in this repo. Some you invoke directly; others (the
               tool skills and the foundation) load automatically when a workflow skill needs them.
               Community skills (T3/T4 — <code>playwright-cli</code>,
               <code>playwright-best-practices</code>, <code>resend-cli</code>,
-              <code>skill-creator</code>, <code>wokitoki</code>, etc.) are <em>not</em> listed here;
-              the installer fetches them from upstream at setup time. The authoritative lists live
-              in <code>cli/install.ts</code> as <code>PROJECT_LEVEL_SKILLS</code> and
+              <code>skill-creator</code>, <code>mkd</code>, etc.) are <em>not</em> listed here; the
+              installer fetches them from upstream at setup time. The authoritative lists live in
+              <code>cli/install.ts</code> as <code>PROJECT_LEVEL_SKILLS</code> and
               <code>USER_LEVEL_SKILLS</code>.
             </p>
 
@@ -3249,7 +3256,7 @@ bun run jira:check            # verify both catalogs against the manifest</code>
                 <h4>Tier — where it lives</h4>
                 <p>
                   <span class="badge badge-tier-t1">T1</span> Project-owned, committed in
-                  <code>.claude/skills/</code> (the 12 listed below).
+                  <code>.agents/skills/</code> (the 19 listed below, one of them vendored as T2).
                 </p>
                 <p>
                   <span class="badge badge-tier-t2">T2</span> gentle-ai dependency at user level via
@@ -3258,7 +3265,7 @@ bun run jira:check            # verify both catalogs against the manifest</code>
                 <p>
                   <span class="badge badge-tier-t3">T3</span> Community project-level installed by
                   <code>cli/install.ts</code> (<code>playwright-cli</code>,
-                  <code>playwright-best-practices</code>).
+                  <code>playwright-best-practices</code>, <code>resend-cli</code>).
                 </p>
                 <p>
                   <span class="badge badge-tier-t4">T4</span> Community user-level — ALWAYS ASK
@@ -3442,6 +3449,95 @@ bun run jira:check            # verify both catalogs against the manifest</code>
                   recommended for chained test-automation suites).
                 </p>
               </article>
+
+              <article class="skill-card">
+                <div class="skill-card-head">
+                  <span class="skill-card-name">project-context</span>
+                  <span class="badge badge-workflow">Workflow</span>
+                  <span class="badge badge-tier-t1">T1</span>
+                </div>
+                <p class="skill-card-trigger">
+                  project-context · legacy /business-*-map · /master-test-plan
+                </p>
+                <p class="skill-card-desc">
+                  Owns the four context artifacts as ordered modes —
+                  <code>data</code>, <code>features</code>, <code>api</code>,
+                  <code>test-plan</code> — plus <code>refresh-all</code>. UPDATE always shows a diff
+                  and waits for approval before overwriting.
+                </p>
+              </article>
+
+              <article class="skill-card">
+                <div class="skill-card-head">
+                  <span class="skill-card-name">sync-ai-context</span>
+                  <span class="badge badge-workflow">Workflow</span>
+                  <span class="badge badge-tier-t1">T1</span>
+                </div>
+                <p class="skill-card-trigger">sync-ai-context · legacy /sync-ai-memory</p>
+                <p class="skill-card-desc">
+                  Synchronizes the AI-critical docs against the canonical instructions, skills,
+                  aliases and <code>package.json</code>. Named apart from Engram on purpose: it can
+                  rewrite several instruction documents at once. Never touches Engram memory.
+                </p>
+              </article>
+
+              <article class="skill-card">
+                <div class="skill-card-head">
+                  <span class="skill-card-name">jira-administration</span>
+                  <span class="badge badge-workflow">Workflow</span>
+                  <span class="badge badge-tier-t1">T1</span>
+                </div>
+                <p class="skill-card-trigger">legacy /jira-components · /jira-instance-migration</p>
+                <p class="skill-card-desc">
+                  Jira administration, not testing. Two sealed modes —
+                  <code>components</code> and <code>instance-migration</code> — each behind
+                  read-first analysis and explicit approval. The migration stays isolated because it
+                  changes the global <code>acli</code> session and instance IDs.
+                </p>
+              </article>
+
+              <article class="skill-card">
+                <div class="skill-card-head">
+                  <span class="skill-card-name">bug-screenshot-annotation</span>
+                  <span class="badge badge-tool">Tool</span>
+                  <span class="badge badge-tier-t1">T1</span>
+                </div>
+                <p class="skill-card-trigger">annotate bug screenshot · anota este bug</p>
+                <p class="skill-card-desc">
+                  Turns a raw screenshot into QA-style annotated evidence (circles, arrows,
+                  callouts, corner badge, axis ticks) via HTML+CSS overlays rendered entirely
+                  locally. Loaded inline by <code>/sprint-testing</code> for visual defects.
+                </p>
+              </article>
+
+              <article class="skill-card">
+                <div class="skill-card-head">
+                  <span class="skill-card-name">pr-review-lead</span>
+                  <span class="badge badge-workflow">Workflow</span>
+                  <span class="badge badge-tier-t1">T1</span>
+                </div>
+                <p class="skill-card-trigger">review this PR · revisa este PR</p>
+                <p class="skill-card-desc">
+                  QA Lead review of a PR's test-automation work against KATA doctrine, every finding
+                  grounded in a citation or a code location. Works on this repo or an external one.
+                  Never posts to GitHub without an explicit final OK.
+                </p>
+              </article>
+
+              <article class="skill-card">
+                <div class="skill-card-head">
+                  <span class="skill-card-name">judgment-day</span>
+                  <span class="badge badge-tool">Tool</span>
+                  <span class="badge badge-tier-t2">T2</span>
+                </div>
+                <p class="skill-card-trigger">/judgment-day · juzgar · dual review</p>
+                <p class="skill-card-desc">
+                  Vendored from gentle-ai (Apache-2.0). Adversarial dual-judge review: two blind
+                  judges in parallel, synthesis, fix loop, re-judge. Cited as an optional gate by
+                  <code>/test-automation</code> and <code>/git-flow-master</code>. Never
+                  auto-invoked.
+                </p>
+              </article>
             </div>
 
             <div class="callout callout-info">
@@ -3460,9 +3556,9 @@ bun run jira:check            # verify both catalogs against the manifest</code>
               <div>
                 <p class="callout-title">Note on <code>adapt-framework</code></p>
                 <p>
-                  It looks like a skill (it has a slash trigger) but it ships as a single-file
-                  <strong>command</strong> at <code>.claude/commands/adapt-framework.md</code>. See
-                  <a href="#section-8">§8 Commands</a>.
+                  It is a full skill at <code>.agents/skills/adapt-framework/</code>. The slash
+                  trigger <code>/adapt-framework</code> is a generated command alias that routes to
+                  it in <code>adapt</code> mode. See <a href="#section-8">§8 Commands</a>.
                 </p>
               </div>
             </div>
@@ -3533,7 +3629,11 @@ bun run jira:check            # verify both catalogs against the manifest</code>
               <div>
                 <h3>Commands</h3>
                 <p class="muted small">
-                  Single-file markdown at <code>.claude/commands/&lt;name&gt;.md</code>. Invoke with
+                  Generated transport aliases. The source is
+                  <code>.agents/compatibility/command-aliases.json</code>; the wrappers at
+                  <code>.claude/commands/&lt;name&gt;.md</code> and
+                  <code>.opencode/commands/&lt;name&gt;.md</code> are written by
+                  <code>bun run agents:compat</code> — never hand-edited. Invoke with
                   <code>/&lt;name&gt;</code>.
                 </p>
                 <ul class="list-plain">
@@ -3549,7 +3649,7 @@ bun run jira:check            # verify both catalogs against the manifest</code>
                   <li>
                     <code>/sync-ai-memory</code>
                     <span class="muted"
-                      >Sync all AI-critical docs (<code>CLAUDE.md</code>, <code>README.md</code>,
+                      >Sync all AI-critical docs (<code>AGENTS.md</code>, <code>README.md</code>,
                       <code>INSTALLER.md</code>, <code>CONTEXT.md</code>, <code>docs/*.md</code>,
                       and this onboarding page) against current <code>.context/</code> +
                       <code>package.json</code>.</span
@@ -3806,7 +3906,7 @@ bun run jira:check            # verify both catalogs against the manifest</code>
                   <tr>
                     <td><code>/sync-ai-memory</code></td>
                     <td>
-                      <code>README.md</code>, <code>CLAUDE.md</code>, <code>INSTALLER.md</code>,
+                      <code>README.md</code>, <code>AGENTS.md</code>, <code>INSTALLER.md</code>,
                       <code>CONTEXT.md</code>,
                       <code>docs/**</code>
                     </td>
@@ -3910,10 +4010,11 @@ bun run jira:check            # verify both catalogs against the manifest</code>
               >Project overview, install paths, repository structure.</span
             >
           </a>
-          <a class="footer-card" href="../CLAUDE.md">
-            <span class="footer-card-title">CLAUDE.md</span>
+          <a class="footer-card" href="../AGENTS.md">
+            <span class="footer-card-title">AGENTS.md</span>
             <span class="footer-card-desc"
-              >Canonical project memory + Tool Resolution table + CLI auto-load.</span
+              >Canonical project memory + Tool Resolution table + CLI auto-load. Claude Code loads
+              it through the generated one-line <code>CLAUDE.md</code> shim.</span
             >
           </a>
           <a class="footer-card" href="../CONTEXT.md">
@@ -3928,7 +4029,7 @@ bun run jira:check            # verify both catalogs against the manifest</code>
               >The <code>bun run setup</code> contract — what the installer configures.</span
             >
           </a>
-          <a class="footer-card" href="../.claude/skills/agentic-qa-core/SKILL.md">
+          <a class="footer-card" href="../.agents/skills/agentic-qa-core/SKILL.md">
             <span class="footer-card-title">agentic-qa-core/SKILL.md</span>
             <span class="footer-card-desc"
               >Foundation skill internals + shared doctrine references.</span
@@ -4020,33 +4121,33 @@ bun run jira:check            # verify both catalogs against the manifest</code>
           you on request.
         </p>
         <div class="footer-grid">
-          <a class="footer-card" href="../.claude/skills/shift-left-testing/how-it-works.es.html">
+          <a class="footer-card" href="../packages/decks/shift-left-testing/how-it-works.es.html">
             <span class="footer-card-title">shift-left-testing / how-it-works</span>
             <span class="footer-card-desc"
               >Pre-sprint AC refinement, the workflow step by step.</span
             >
           </a>
-          <a class="footer-card" href="../.claude/skills/sprint-testing/how-it-works.es.html">
+          <a class="footer-card" href="../packages/decks/sprint-testing/how-it-works.es.html">
             <span class="footer-card-title">sprint-testing / how-it-works</span>
             <span class="footer-card-desc">In-sprint manual QA per ticket, end to end.</span>
           </a>
-          <a class="footer-card" href="../.claude/skills/test-documentation/how-it-works.es.html">
+          <a class="footer-card" href="../packages/decks/test-documentation/how-it-works.es.html">
             <span class="footer-card-title">test-documentation / how-it-works</span>
             <span class="footer-card-desc">TMS test cases + ROI prioritization explained.</span>
           </a>
-          <a class="footer-card" href="../.claude/skills/test-automation/how-it-works.es.html">
+          <a class="footer-card" href="../packages/decks/test-automation/how-it-works.es.html">
             <span class="footer-card-title">test-automation / how-it-works</span>
             <span class="footer-card-desc"
               >KATA + Playwright Plan → Code → Review, demystified.</span
             >
           </a>
-          <a class="footer-card" href="../.claude/skills/regression-testing/how-it-works.es.html">
+          <a class="footer-card" href="../packages/decks/regression-testing/how-it-works.es.html">
             <span class="footer-card-title">regression-testing / how-it-works</span>
             <span class="footer-card-desc"
               >CI regression suites + GO / CAUTION / NO-GO verdicts.</span
             >
           </a>
-          <a class="footer-card" href="../.claude/skills/xray-cli/how-it-works.es.html">
+          <a class="footer-card" href="../packages/decks/xray-cli/how-it-works.es.html">
             <span class="footer-card-title">xray-cli / how-it-works</span>
             <span class="footer-card-desc"
               >Xray workflow — Test, Plan, Execution, runs, imports.</span

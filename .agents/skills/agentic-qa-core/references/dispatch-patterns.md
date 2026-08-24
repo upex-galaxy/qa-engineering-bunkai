@@ -30,10 +30,10 @@ If two gates seem to fit, prefer the earlier one — it's more specific.
 
 | Pattern    | Example skill / file                                                                                                  | What gets dispatched                                                                                          |
 |------------|-----------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------|
-| Parallel   | `.claude/skills/regression-testing/SKILL.md` Phase 2 (Analyze) — artifact downloads after a CI run                    | 3 agents in parallel: `allure-results`, `playwright-report`, `evidence/`. Each scoped to one `gh run download`. |
-| Background | `.claude/skills/regression-testing/SKILL.md` Phase 1 (Execute) — wait for the CI run to terminate                     | 1 agent blocking on `gh run watch <RUN_ID> --exit-status` for 20-60 minutes.                                  |
-| Sequential | `.claude/skills/test-automation/SKILL.md` (Stage 5) — Plan → Code → Review                                            | 3 agents one at a time: Plan writes spec.md+automation-plan.md, Code consumes them, Review verifies.       |
-| Single     | `.claude/skills/sprint-testing/SKILL.md` Stage 1 — fetch+analyse one Jira ticket                                       | 1 agent that loads `/acli`, fetches the ticket, analyses ACs against `tests/` references, writes ATP draft.    |
+| Parallel   | `.agents/skills/regression-testing/SKILL.md` Phase 2 (Analyze) — artifact downloads after a CI run                    | 3 agents in parallel: `allure-results`, `playwright-report`, `evidence/`. Each scoped to one `gh run download`. |
+| Background | `.agents/skills/regression-testing/SKILL.md` Phase 1 (Execute) — wait for the CI run to terminate                     | 1 agent blocking on `gh run watch <RUN_ID> --exit-status` for 20-60 minutes.                                  |
+| Sequential | `.agents/skills/test-automation/SKILL.md` (Stage 5) — Plan → Code → Review                                            | 3 agents one at a time: Plan writes spec.md+automation-plan.md, Code consumes them, Review verifies.       |
+| Single     | `.agents/skills/sprint-testing/SKILL.md` Stage 1 — fetch+analyse one Jira ticket                                       | 1 agent that loads `/acli`, fetches the ticket, analyses ACs against `tests/` references, writes ATP draft.    |
 
 When extending an existing skill, mirror the pattern of the closest sibling rather than inventing a new one. Consistency makes the orchestration legible.
 

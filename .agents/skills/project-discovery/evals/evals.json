@@ -7,15 +7,15 @@
       "category": "positive"
     },
     {
-      "name": "should-trigger-business-data-map-regeneration",
+      "name": "should-redirect-business-data-map-regeneration",
       "prompt": "Generate the business-data-map.md for this project. Look at the source code and the database.",
-      "expected_behavior": "Activates project-discovery. Loads references/context-generators.md. Reads source code + schema, extracts entities, flows, triggers, cron jobs, webhooks, and writes .context/business/business-data-map.md. If prior phases missing, runs minimum prerequisites (project-connection + backend-discovery) first.",
+      "expected_behavior": "Does NOT generate the map inside this skill and does NOT claim to own it. Redirects to `project-context` mode `data` (legacy alias `/business-data-map`), which is where the entity/flow/state-machine extraction lives. May state which discovery artifacts that mode depends on, and offer to run Phase 1 + Phase 3 first if `.context/` has no project-config or infrastructure yet. Does not reference a context-generators file: this skill has no such reference.",
       "category": "positive"
     },
     {
       "name": "should-redirect-api-architecture-request",
       "prompt": "The api-architecture.md is stale. Regenerate it with the current endpoints.",
-      "expected_behavior": "Does NOT regenerate api-architecture.md inside this skill. Either declines (if invoked) or activates only to redirect: explains the split — `bun run api:sync` for technical endpoint sync (TypeScript types from OpenAPI) and the `/business-api-map` command for the business angle (auth flows, critical paths). Points to `references/context-generators.md` §API context — deferred for the canonical deferral note.",
+      "expected_behavior": "Does NOT regenerate api-architecture.md inside this skill. Either declines (if invoked) or activates only to redirect: explains the split — `bun run api:sync` for technical endpoint sync (TypeScript types from OpenAPI) and `project-context` mode `api` (legacy alias `/business-api-map`) for the business angle (auth flows, critical paths). Does not point at a context-generators file: that reference no longer exists, and the deferral note now lives in this skill's SKILL.md routing table.",
       "category": "positive"
     },
     {

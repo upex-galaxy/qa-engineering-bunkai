@@ -50,8 +50,8 @@ Also confirm scope in the same round if not already given: which PR (repo + numb
 
 Never review against remembered conventions or generic "best practices" you didn't just verify are documented here. Read first, opine second.
 
-- **This repo**: load `CLAUDE.md` in full, plus the doctrine files listed under Dependencies above. This is the reference standard.
-- **External repo**: check whether the target repo ships its own `CLAUDE.md` / `.claude/skills/` / `.context/` doctrine before assuming anything — many sibling projects are forked from this same boilerplate and carry (a possibly-evolved version of) the same KATA doctrine, but you cannot assume that without checking. If it has its own doctrine, that repo's doctrine is authoritative for this review, not this repo's copy. If it has none, fall back to this repo's KATA doctrine as the reference standard, and say so explicitly in the output ("this repo has no doctrine of its own, findings are graded against `agentic-qa-boilerplate`'s KATA conventions").
+- **This repo**: load `AGENTS.md` in full, plus the doctrine files listed under Dependencies above. This is the reference standard.
+- **External repo**: check whether the target repo ships its own `AGENTS.md` / `.agents/skills/` / `.context/` doctrine before assuming anything — many sibling projects are forked from this same boilerplate and carry (a possibly-evolved version of) the same KATA doctrine, but you cannot assume that without checking. If it has its own doctrine, that repo's doctrine is authoritative for this review, not this repo's copy. If it has none, fall back to this repo's KATA doctrine as the reference standard, and say so explicitly in the output ("this repo has no doctrine of its own, findings are graded against `agentic-qa-boilerplate`'s KATA conventions").
 
 Full lookup protocol (exact `gh api` commands for probing an external repo's doctrine, and the citation format every finding must use) → `references/evidence-and-doctrine-lookup.md`. Read it now, before Step 2.
 
@@ -105,11 +105,11 @@ This mirrors this repo's general "Executing actions with care" policy — a post
 
 ## Subagent Dispatch Strategy
 
-This skill is not on CLAUDE.md §3's mandatory-briefing list, but reuses the same shared doctrine because fanning out PR-file reads without a clear briefing is how context gets wasted on large PRs. Follow `agentic-qa-core/references/briefing-template.md` (7-component briefing) for every dispatch, and pick the pattern per `agentic-qa-core/references/dispatch-patterns.md`.
+This skill is not on AGENTS.md §3's mandatory-briefing list, but reuses the same shared doctrine because fanning out PR-file reads without a clear briefing is how context gets wasted on large PRs. Follow `agentic-qa-core/references/briefing-template.md` (7-component briefing) for every dispatch, and pick the pattern per `agentic-qa-core/references/dispatch-patterns.md`.
 
 | Stage | Pattern | Subagent role |
 |---|---|---|
-| Probe external repo for its own doctrine (Step 1) | Single | one agent checks for `CLAUDE.md`/`.claude/skills`/`.context`, reports what exists |
+| Probe external repo for its own doctrine (Step 1) | Single | one agent checks for `AGENTS.md`/`.agents/skills`/`.context`, reports what exists |
 | Fetch N independent file diffs (Step 2, large PR) | Parallel | one agent per file or small file-group, returns the patch + a one-line summary; cap at 10 per `dispatch-patterns.md` |
 | Analyze against doctrine (Step 3) | Single or inline | for small/medium PRs, do this inline — you already have the diffs and doctrine loaded; only dispatch if the PR is large enough that isolating the analysis pass protects your own context |
 
@@ -123,4 +123,4 @@ Never dispatch a subagent to draft or post the final feedback (Steps 6-7) — th
 - Always load the target repo's OWN doctrine when it has one, in full, before analyzing — never assume it mirrors this repo's conventions.
 - Always surface genuine strengths (Step 3 bucket 3) — a review with zero positives on a PR that clearly has some is not calibrated correctly, it's just uncharitable.
 - Do not chain `/sdd-*` skills from this workflow — reviewing a PR is not framework-evolution work; if a PR under review actually needs a framework-level SDD process, say so and point the user at `/framework-development`, don't invoke SDD yourself.
-- Repo-artifact language rule (CLAUDE.md §1 #14) still applies to the posted comment itself: default to English for the artifact unless the user has asked for a specific language for it.
+- Repo-artifact language rule (AGENTS.md §1 #14) still applies to the posted comment itself: default to English for the artifact unless the user has asked for a specific language for it.

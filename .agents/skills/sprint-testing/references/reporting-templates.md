@@ -91,7 +91,7 @@ _RELATED STORIES_
 **Attach visual evidence** (screenshot of the failing UI, console capture, repro recording). `![](path)` does NOT embed in Jira — use the bundled helper, which uploads the file and posts it inline as a real image:
 
 ```bash
-bun .claude/skills/acli/scripts/jira-attach-media.ts {{PROJECT_KEY}}-<bug> ./evidence/repro-step-3.png \
+bun .agents/skills/acli/scripts/jira-attach-media.ts {{PROJECT_KEY}}-<bug> ./evidence/repro-step-3.png \
   --caption "Step 3 — validation error not shown" --publish
 ```
 
@@ -611,7 +611,7 @@ Record the gate outcome (hypothesis, cited fact, decision) in the ATR Observatio
 
    Resolve the `blocks` link type by slug only, create one edge, then run the mandatory direction check (confirm the Story's inward partner is the Bug under `is blocked by`) — full mechanics in `agentic-qa-core/references/traceability-linking.md` (§2 slug resolution, §4 directionality + verification, §6 never degrade a `blocks` edge to `relates` silently). Defer `--out`/`--in` flag handling to `/acli` per `[ISSUE_TRACKER_TOOL]`.
 6. PBI `context.md` updated with `Final Status` block.
-7. Nothing to commit — the ATR is canonical in Jira; the synced `acceptance-test-results.md` is a gitignored cache rebuilt by `bun run jira:sync-issues`, and `context.md` is disposable session output (see `CLAUDE.md` §9).
+7. Nothing to commit — the ATR is canonical in Jira; the synced `acceptance-test-results.md` is a gitignored cache rebuilt by `bun run jira:sync-issues`, and `context.md` is disposable session output (see `AGENTS.md` §9).
 8. For batch-sprint mode, only now is the `SPRINT-{N}-TESTING.md` framework file updated (Stage-3 gate).
 
 ### 5.2 Next stage routing

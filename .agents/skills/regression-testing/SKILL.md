@@ -17,7 +17,7 @@ natively (no SDD required).
 
 This boundary is mechanical, not advisory: `scripts/lint-skills.ts` rejects
 any `/sdd-` mention outside this section. See:
-`.claude/skills/agentic-qa-core/references/skill-composition-strategy.md` §4
+`.agents/skills/agentic-qa-core/references/skill-composition-strategy.md` §4
 (governs users who manually install SDD).
 
 # Regression Testing — Execute, Analyze, Decide
@@ -46,7 +46,7 @@ Three phases, always in this order: **Execute → Analyze → Report**. Do not s
 
 This skill is **per-run scope**: `<scope>` = `<env>-<YYYY-MM-DD>` (e.g. `staging-2026-05-20`). Session state lives at `.session/regression-testing/<scope>/{plan.md, progress.md}` per `agentic-qa-core/references/session-management.md` §3 + §9. The single highest-value resume case: if the Monitor subagent dies while watching a long CI run but `RUN_ID` was captured in `plan.md`, Phase 0 re-attaches via `gh run view <RUN_ID>` instead of re-triggering CI (saves 20–60 min of wall-clock).
 
-This skill is compliant with the doctrine in `CLAUDE.md` §"Orchestration Mode (Subagent Strategy)" and the session contract in `.claude/skills/agentic-qa-core/references/session-management.md`. Every dispatch follows the 7-component briefing format defined in `.claude/skills/agentic-qa-core/references/briefing-template.md`, and the pattern selected per stage matches the decision guide in `.claude/skills/agentic-qa-core/references/dispatch-patterns.md`. The two CI-bound stages (long-running watch, multi-artifact download) and the high-volume failure classification step are the hotspots — everything else stays inline because the dispatch overhead is not justified.
+This skill is compliant with the doctrine in `AGENTS.md` §"Orchestration Mode (Subagent Strategy)" and the session contract in `.agents/skills/agentic-qa-core/references/session-management.md`. Every dispatch follows the 7-component briefing format defined in `.agents/skills/agentic-qa-core/references/briefing-template.md`, and the pattern selected per stage matches the decision guide in `.agents/skills/agentic-qa-core/references/dispatch-patterns.md`. The two CI-bound stages (long-running watch, multi-artifact download) and the high-volume failure classification step are the hotspots — everything else stays inline because the dispatch overhead is not justified.
 
 | Stage                                                      | Pattern    | Subagent role                                                                                                  |
 |------------------------------------------------------------|------------|----------------------------------------------------------------------------------------------------------------|
@@ -58,7 +58,7 @@ This skill is compliant with the doctrine in `CLAUDE.md` §"Orchestration Mode (
 | Generate executive report                                  | Single     | inline — final synthesis, decisions live here                                                                  |
 | GO / CAUTION / NO-GO verdict                               | Single     | inline — main thread owns release decisions                                                                    |
 
-- **Error protocol**: On any subagent failure: STOP, report full context to user, present retry / skip / abort options. Do NOT auto-fix. See `.claude/skills/agentic-qa-core/references/orchestration-doctrine.md`.
+- **Error protocol**: On any subagent failure: STOP, report full context to user, present retry / skip / abort options. Do NOT auto-fix. See `.agents/skills/agentic-qa-core/references/orchestration-doctrine.md`.
 
 ---
 
@@ -312,7 +312,7 @@ Failed test
 > report under its own heading with the blocking `{BUG-KEY}`. Do NOT file a new
 > Jira bug — the marker already names the open one.
 
-> **`sdet` CI-fallback clause** (integration-trunk suites only): an ENVIRONMENT-class red on a Sanity-CI run for a ticket branch may authorize merging **into the integration trunk** — never the final `trunk → main` PR — when proven by BOTH (a) the change passing locally on `local` AND `staging`, and (b) the same red being present independent of the change (nightly already red, or the failing line is shared pre-existing code). File a separate infra/flake ticket and reference it in the PR. This is NOT a relaxation of the GO bar: a REGRESSION-class failure is never eligible, and the final PR to `main` still requires a genuinely green test step. See `.claude/skills/git-flow-master/references/sdet-integration-trunk.md` §CI-fallback clause.
+> **`sdet` CI-fallback clause** (integration-trunk suites only): an ENVIRONMENT-class red on a Sanity-CI run for a ticket branch may authorize merging **into the integration trunk** — never the final `trunk → main` PR — when proven by BOTH (a) the change passing locally on `local` AND `staging`, and (b) the same red being present independent of the change (nightly already red, or the failing line is shared pre-existing code). File a separate infra/flake ticket and reference it in the PR. This is NOT a relaxation of the GO bar: a REGRESSION-class failure is never eligible, and the final PR to `main` still requires a genuinely green test step. See `.agents/skills/git-flow-master/references/sdet-integration-trunk.md` §CI-fallback clause.
 
 Read `references/failure-classification.md` when: the decision tree is ambiguous, you need the full error-pattern catalogue, you are classifying a borderline case, or you are computing flakiness over historical runs.
 
@@ -517,7 +517,7 @@ On Verdict = NO-GO with regressions still being filed as issues, archive WAITS u
 * **Setting up Allure locally for the first time, or the user asks "is Allure up to date?"** — run the §Allure version-currency check under §Local reporting.
 * **Classifying a borderline failure (REGRESSION vs FLAKY vs ENVIRONMENT)** — read `references/failure-classification.md`
 * **TMS / Xray result import** — load `/xray-cli` skill
-* **Downloading traces or screenshots for a failure** — use `[AUTOMATION_TOOL]` per CLAUDE.md Tool Resolution; for Playwright trace inspection load `/playwright-cli`
+* **Downloading traces or screenshots for a failure** — use `[AUTOMATION_TOOL]` per AGENTS.md Tool Resolution; for Playwright trace inspection load `/playwright-cli`
 * **Session contract (Phase 0 resume, plan.md/progress.md schemas, archive policy, Engram per-phase checkpoint, RUN_ID re-attach mechanism)** — read `../agentic-qa-core/references/session-management.md`. This skill is a producer of `session/regression-testing/<scope>/...` topic keys.
 
 ---

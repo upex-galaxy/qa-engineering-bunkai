@@ -24,9 +24,10 @@ This skill does NOT orchestrate workflows, does NOT generate files, and does NOT
 | `references/briefing-template.md` | `shift-left-testing`, `sprint-testing`, `test-documentation`, `test-automation`, `regression-testing`, `project-discovery` | The 7-component subagent briefing template, with concrete filled examples per dispatch pattern. |
 | `references/dispatch-patterns.md` | All workflow skills with a "Subagent Dispatch Strategy" section | Decision table + heuristic for picking Single / Sequential / Parallel / Background. |
 | `references/stage-gates.md` | All workflow skills (`shift-left-testing`, `sprint-testing`, `test-documentation`, `test-automation`, `regression-testing`) | Definition-of-Done checklist per workflow stage. The orchestrator verifies each stage's DoD (planning stages include the Test-Design Checklist) before appending the progress checkpoint and advancing — turns the prose doctrine into an enforced gate. |
-| `references/orchestration-doctrine.md` | Subagents that need orchestration rules without pulling the whole `CLAUDE.md` | Cacheable mirror of `CLAUDE.md` §"Orchestration Mode (Subagent Strategy)". |
+| `references/orchestration-doctrine.md` | Subagents that need orchestration rules without pulling the whole `AGENTS.md` | Cacheable mirror of `AGENTS.md` §"Orchestration Mode (Subagent Strategy)". |
+| `references/behavioral-layer.md` | Subagents that must answer the user directly, in any workflow skill | Cacheable mirror of `AGENTS.md` §2: caveman compression, Butler granularity, PM Voice register, Visual Mapping. A dispatched subagent inherits none of that from the orchestrator, so its report reads in a different voice unless it pulls this. |
 | `references/skill-composition-strategy.md` | `framework-development`, every workflow skill | T1-T4 tier model + SDD boundary + composition contract. |
-| `references/skill-resolver.md` | Skills that resolve composable skills at runtime via the registry | Skill Resolver Protocol used by sub-agent launches. Companion: `scripts/build-skill-registry.ts` → `.claude/skills/REGISTRY.md`. |
+| `references/skill-resolver.md` | Skills that resolve composable skills at runtime via the registry | Skill Resolver Protocol used by sub-agent launches. Companion: `scripts/build-skill-registry.ts` → `.agents/skills/REGISTRY.md`. |
 | `references/preflight-gate.md` | `shift-left-testing`, `sprint-testing`, `test-documentation`, `test-automation`, `regression-testing`, `framework-development` | Readiness Preflight Gate doctrine — probe tools/MCPs/CLIs/credentials and surface a user checklist BEFORE a skill starts its real work. Owns the secret/token handling + OpenAPI `api-login` → RESTART flow. |
 | `references/adr-doctrine.md` | `project-discovery`, `framework-development`, `sprint-testing`, `test-automation` | When a test-architecture decision earns an ADR (two-gate test: architectural AND hard-to-reverse) + the detect → draft → record procedure. Test architecture = runner/framework choice, Page-Object vs Screenplay, fixture/data strategy, isolation & parallelization, auth-in-tests, selector contract, exploratory-vs-scripted boundary, reporting/CI sharding, flake-retry policy. |
 | `references/api-testing-doctrine.md` | `sprint-testing`, `test-automation`, `test-documentation` | **Canonical API-testing maneuver** (agentic level, not KATA code): the three-tool split — OpenAPI MCP = schema READ-ONLY (discover endpoints/schemas), `bun run api:login` = mint token only (→ `.auth/tokens.env` env var `API_TOKEN_<ROLE>_<ENV>` + `.auth/tokens.json` keyed `<ROLE>_<ENV>`), curl = authenticated execution. Covers the schema-drift caveat (dev/latest vs target env), token-freshness checks, and the "shell env vars don't persist across the agent's Bash calls → `source` per curl call" rule. |
@@ -67,7 +68,7 @@ The block is documentation — the AI reads it and pulls the cited files. There 
 
 ## Install model
 
-This boilerplate is designed to be cloned in full. The workflow skills under `.claude/skills/` depend on foundation files that live at the repo root (`CLAUDE.md`, `.agents/`, `scripts/`, `package.json`, `tests/`) and on shared references under `agentic-qa-core/references/`. Installing only a subset of skills (e.g. copying one skill directory in isolation) leaves those skills without their dependencies and they will not function.
+This boilerplate is designed to be cloned in full. The workflow skills under `.agents/skills/` depend on foundation files that live at the repo root (`AGENTS.md`, `.agents/`, `scripts/`, `package.json`, `tests/`) and on shared references under `agentic-qa-core/references/`. Installing only a subset of skills (e.g. copying one skill directory in isolation) leaves those skills without their dependencies and they will not function.
 
 If a downstream user has only the skills and not the rest of the repo, the supported path is to clone the full boilerplate repository and integrate it as a single unit. No per-skill scaffolding action is provided by this skill — the skill set is intentionally inseparable from the foundation.
 
@@ -81,7 +82,7 @@ If a downstream user has only the skills and not the rest of the repo, the suppo
 - Create or modify `.context/` files (that belongs to `/project-discovery`).
 - Generate or scaffold tests, fixtures, or KATA components (that belongs to `/adapt-framework` and `/test-automation`).
 - Adapt the framework to a specific stack (that belongs to `/adapt-framework`).
-- Sync AI-critical documents or project-specific facts in `CLAUDE.md` (that belongs to `/sync-ai-memory`).
+- Sync AI-critical documents or project-specific facts in `AGENTS.md` (that belongs to `/sync-ai-memory`).
 - Sync OpenAPI / API schemas (that's `bun run api:sync`).
 
 For framework evolution (changes to KATA bases, fixtures, `cli/`, `scripts/`, `api/schemas/` pipeline), see `/framework-development`.

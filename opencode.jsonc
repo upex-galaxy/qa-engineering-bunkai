@@ -8,7 +8,7 @@
   //   - Env var expansion uses {env:VAR_NAME}  (NOT ${VAR})
   //   - MCP root key is "mcp"                  (NOT "mcpServers")
   //   - MCP env field is "environment"         (NOT "env")
-  //   - Missing env vars resolve to empty string (no hard failure) — see CLAUDE.md
+  //   - Missing env vars resolve to empty string (no hard failure) — see AGENTS.md
   //     Critical Reminder about stopping immediately when MCP credentials fail.
   "$schema": "https://opencode.ai/config.json",
 
@@ -25,24 +25,22 @@
   "mcp": {
     "context7": {
       "type": "local",
-      "command": ["npx", "-y", "@upstash/context7-mcp"],
+      "command": ["npx", "-y", "@upstash/context7-mcp@4.0.3"],
       "enabled": true
     },
     "tavily": {
-      "type": "local",
-      "command": [
-        "npx",
-        "-y",
-        "mcp-remote",
-        "https://mcp.tavily.com/mcp/?tavilyApiKey={env:TAVILY_API_KEY}"
-      ],
-      "enabled": true
+      "type": "remote",
+      "url": "https://mcp.tavily.com/mcp/",
+      "enabled": true,
+      "headers": {
+        "Authorization": "Bearer {env:TAVILY_API_KEY}"
+      }
     },
     "playwright": {
       "type": "local",
       "command": [
         "bunx",
-        "@playwright/mcp@latest",
+        "@playwright/mcp@0.0.79",
         "--caps",
         "vision,pdf,testing,tracing,tabs",
         "--timeout-action",
@@ -56,7 +54,7 @@
     },
     "dbhub": {
       "type": "local",
-      "command": ["bunx", "-y", "@bytebase/dbhub@latest", "--config", "dbhub.toml"],
+      "command": ["bunx", "-y", "@bytebase/dbhub@1.2.1", "--config", "dbhub.toml"],
       "enabled": true
     },
     // SCHEMA-READ-ONLY: no API_TOKEN / Authorization header is injected here.
@@ -67,7 +65,7 @@
     // requirement for API auth. OPENAPI_SPEC_PATH may be a local file OR a URL.
     "openapi": {
       "type": "local",
-      "command": ["bunx", "-y", "@ivotoby/openapi-mcp-server", "--tools", "dynamic"],
+      "command": ["bunx", "-y", "@ivotoby/openapi-mcp-server@1.16.1", "--tools", "dynamic"],
       "enabled": true,
       "environment": {
         "API_BASE_URL": "{env:API_BASE_URL}",

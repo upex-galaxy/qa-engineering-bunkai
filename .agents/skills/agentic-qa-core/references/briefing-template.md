@@ -7,11 +7,11 @@
 
 1. **Goal** — one sentence. What outcome the subagent must achieve.
 2. **Context docs** — files the subagent reads before acting. Absolute paths. The repo root is written as `<<REPO_ROOT>>` — a session variable per `.agents/README.md` §Variable syntax conventions — which the orchestrator resolves to the real absolute root at dispatch time (a subagent's cwd resets between calls, so relative paths are unsafe).
-3. **Project Standards (auto-resolved)** — REQUIRED. Compact rules of skills relevant to this dispatch. Pulled from `.claude/skills/REGISTRY.md` (built once per session by `bun run skills:registry`). The subagent treats this section as authoritative for the listed conventions and does NOT re-read the full SKILL.md unless explicitly told to. Protocol: `agentic-qa-core/references/skill-resolver.md`.
+3. **Project Standards (auto-resolved)** — REQUIRED. Compact rules of skills relevant to this dispatch. Pulled from `.agents/skills/REGISTRY.md` (built once per session by `bun run skills:registry`). The subagent treats this section as authoritative for the listed conventions and does NOT re-read the full SKILL.md unless explicitly told to. Protocol: `agentic-qa-core/references/skill-resolver.md`.
 4. **Skills to load** — skill triggers (e.g. `/acli`, `/xray-cli`, `/playwright-cli`) the subagent must invoke before issuing tool calls. The orchestrator never inlines tool syntax — that lives in the owning skill.
 5. **Exact instructions** — numbered steps. No ambiguity. Each step names the tool / skill action.
 6. **Report format** — what the subagent returns to the orchestrator. Either a JSON object with named fields, or a bullet list with explicit headings. Avoid free-form prose. For workflow-skill stage dispatches, append the mandatory session-footer fields (`skills_loaded`, `mcps_used`, `clis_used`, `testing_levels_touched`, `screenshots_captured`) per `agentic-qa-core/references/session-footer-contract.md` §Briefing snippet — the orchestrator unions them into ONE session-close footer.
-7. **Rules** — constraints (relevant Critical Rules from `CLAUDE.md`, project-specific guardrails, Git rules, env-selection rules).
+7. **Rules** — constraints (relevant Critical Rules from `AGENTS.md`, project-specific guardrails, Git rules, env-selection rules).
 
 ## Filled template (skeleton)
 
@@ -50,7 +50,7 @@ Rules:
   - <project guardrail>
 ```
 
-> The `Project Standards (auto-resolved)` section is built by the orchestrator from `.claude/skills/REGISTRY.md` (see `agentic-qa-core/references/skill-resolver.md` for the protocol). The subagent treats those bullets as authoritative for the listed conventions and skips re-reading full SKILL.md files unless the briefing explicitly says otherwise.
+> The `Project Standards (auto-resolved)` section is built by the orchestrator from `.agents/skills/REGISTRY.md` (see `agentic-qa-core/references/skill-resolver.md` for the protocol). The subagent treats those bullets as authoritative for the listed conventions and skips re-reading full SKILL.md files unless the briefing explicitly says otherwise.
 
 ---
 
@@ -65,7 +65,7 @@ Goal: Download the Allure report artifact for run <<RUN_ID>> and unpack it into 
 
 Context docs:
   - <<REPO_ROOT>>/.github/workflows/regression.yml
-  - <<REPO_ROOT>>/.claude/skills/regression-testing/SKILL.md
+  - <<REPO_ROOT>>/.agents/skills/regression-testing/SKILL.md
 
 Skills to load: (none — this is a pure gh CLI task)
 
@@ -142,7 +142,7 @@ Context docs:
   - <<REPO_ROOT>>/.context/PBI/epics/EPIC-<<EPIC_KEY>>-<<EPIC_SLUG>>/module-context.md
   - <<REPO_ROOT>>/.context/PBI/epics/EPIC-<<EPIC_KEY>>-<<EPIC_SLUG>>/test-specs/ROADMAP.md
   - <<REPO_ROOT>>/tests/components/TestFixture.ts
-  - <<REPO_ROOT>>/.claude/skills/test-automation/references/planning-playbook.md
+  - <<REPO_ROOT>>/.agents/skills/test-automation/references/planning-playbook.md
 
 Skills to load: /acli (to fetch the ticket), /xray-cli (to read existing TCs)
 
@@ -174,11 +174,11 @@ Rules:
 Sometimes there is exactly one task with no fan-out and no follow-up. Use Single when the task is non-trivial enough to deserve isolation but small enough not to need staging.
 
 ```
-Goal: Add the standard Dependencies block to .claude/skills/test-documentation/SKILL.md and verify the markdown still renders cleanly.
+Goal: Add the standard Dependencies block to .agents/skills/test-documentation/SKILL.md and verify the markdown still renders cleanly.
 
 Context docs:
-  - <<REPO_ROOT>>/.claude/skills/agentic-qa-core/SKILL.md
-  - <<REPO_ROOT>>/.claude/skills/test-documentation/SKILL.md
+  - <<REPO_ROOT>>/.agents/skills/agentic-qa-core/SKILL.md
+  - <<REPO_ROOT>>/.agents/skills/test-documentation/SKILL.md
 
 Skills to load: (none)
 
@@ -189,7 +189,7 @@ Exact instructions:
   4. Run: bun run types:check (must exit 0).
 
 Report format:
-  - filesChanged: [.claude/skills/test-documentation/SKILL.md]
+  - filesChanged: [.agents/skills/test-documentation/SKILL.md]
   - lintExitCode: <number>
   - typeCheckExitCode: <number>
   - diff: <unified diff snippet>
@@ -204,7 +204,7 @@ Rules:
 ## Anti-patterns (do NOT delegate)
 
 - **Quick lookups (1-2 file reads)** — inline `Read` is faster, doesn't pay the subagent overhead.
-- **Memory reads/writes** — orchestrator owns memory. Subagents must not read or write `CLAUDE.md` / `CLAUDE.md` / persistent memory.
+- **Memory reads/writes** — orchestrator owns memory. Subagents must not read or write `AGENTS.md` / `AGENTS.md` / persistent memory.
 - **Task tracking** (TaskCreate / TaskUpdate / progress files) — orchestrator owns tasks.
 - **Asking the user for input** — only the orchestrator can prompt the user. Subagents that hit a question must STOP and report.
 - **Planning / decision-making** — the orchestrator decides what to do next. Subagents execute pre-decided steps.
@@ -213,7 +213,7 @@ Rules:
 
 ---
 
-## Error protocol (mirrors CLAUDE.md §Orchestration Mode)
+## Error protocol (mirrors AGENTS.md §Orchestration Mode)
 
 If a subagent fails:
 
@@ -223,4 +223,4 @@ If a subagent fails:
 4. Do NOT auto-fix without approval. The user may need to fix env config, restore credentials, or re-scope the task.
 5. Pre-existing files written by failed subagents are NOT cleaned up automatically. The orchestrator decides whether to restore.
 
-This protocol mirrors `CLAUDE.md` §"Orchestration Mode (Subagent Strategy)". When in doubt, the live `CLAUDE.md` is canonical.
+This protocol mirrors `AGENTS.md` §"Orchestration Mode (Subagent Strategy)". When in doubt, the live `AGENTS.md` is canonical.

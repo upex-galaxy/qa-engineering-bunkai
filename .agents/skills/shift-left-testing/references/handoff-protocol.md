@@ -226,7 +226,7 @@ bun run jira:sync-issues get {STORY_KEY} --include-comments
 
 Warnings DO NOT abort the per-Story handoff — they are surfaced in the batch report.
 
-Errors DO abort. Per CLAUDE.md §Orchestration Mode, the orchestrator presents retry / skip / abort to the user. Do NOT auto-rollback Jira mutations — they are recorded in the partial log so a future session can resume.
+Errors DO abort. Per AGENTS.md §Orchestration Mode, the orchestrator presents retry / skip / abort to the user. Do NOT auto-rollback Jira mutations — they are recorded in the partial log so a future session can resume.
 
 ---
 
@@ -353,7 +353,7 @@ Each step is idempotent:
 5. **Mention discipline.** Only mention PO/Dev-lead handles that are explicitly listed in `.agents/project.yaml`. No guessing.
 6. **Dated label** (`shift-left-{date}`) is APPENDED on every refinement. `/sprint-testing` reads the most recent one. Old dated labels are NOT pruned by this skill.
 7. **Resume safety.** Every step is idempotent — re-running a partially-completed Story should converge to the same final state.
-8. **Language**: all Jira content English. Mirror user's language only in conversation. CLAUDE.md §1 Rule #14.
+8. **Language**: all Jira content English. Mirror user's language only in conversation. AGENTS.md §1 Rule #14.
 9. **NO git commit.** Jira is the source of truth. The local `shift-left-refinement.md` is a gitignored working artifact.
 10. **Epic comment posting** is a courtesy. If it fails (epic doesn't exist, permission denied, network), DO NOT abort — log a warning and proceed; the local report is still authoritative.
 11. **Subtask close is best-effort.** The `[QA] Shift-Left Review` subtask holds the exhaustive session annotations and shows the team QA worked the Story pre-sprint. No subtask work type in the catalog → Step 5b skips with a warning; the handoff still completes.

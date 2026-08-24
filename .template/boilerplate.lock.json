@@ -3,17 +3,20 @@
   "templateRepo": "upex-galaxy/agentic-qa-boilerplate",
   "templateCommit": "97c4f9bc05e0086fff6c14c466b5a4f4728ba7b1",
   "perComponentCommit": {
-    "skills": "97c4f9bc05e0086fff6c14c466b5a4f4728ba7b1",
-    "commands": "97c4f9bc05e0086fff6c14c466b5a4f4728ba7b1",
-    "scripts": "97c4f9bc05e0086fff6c14c466b5a4f4728ba7b1",
-    "docs": "97c4f9bc05e0086fff6c14c466b5a4f4728ba7b1",
+    "skills": "0c1b4e11856bdd2a288d657f5863a9cbf816cc47",
+    "commands": "0c1b4e11856bdd2a288d657f5863a9cbf816cc47",
+    "scripts": "0c1b4e11856bdd2a288d657f5863a9cbf816cc47",
+    "docs": "0c1b4e11856bdd2a288d657f5863a9cbf816cc47",
     "cli": "97c4f9bc05e0086fff6c14c466b5a4f4728ba7b1",
     "vscode": "97c4f9bc05e0086fff6c14c466b5a4f4728ba7b1",
-    "husky": "97c4f9bc05e0086fff6c14c466b5a4f4728ba7b1",
-    "agents-docs": "97c4f9bc05e0086fff6c14c466b5a4f4728ba7b1",
-    "claude-config": "97c4f9bc05e0086fff6c14c466b5a4f4728ba7b1",
+    "husky": "0c1b4e11856bdd2a288d657f5863a9cbf816cc47",
+    "agents-docs": "0c1b4e11856bdd2a288d657f5863a9cbf816cc47",
+    "claude-config": "0c1b4e11856bdd2a288d657f5863a9cbf816cc47",
     "tooling": "97c4f9bc05e0086fff6c14c466b5a4f4728ba7b1",
-    "env-template": "97c4f9bc05e0086fff6c14c466b5a4f4728ba7b1"
+    "env-template": "0c1b4e11856bdd2a288d657f5863a9cbf816cc47",
+    "agent-compatibility": "0c1b4e11856bdd2a288d657f5863a9cbf816cc47",
+    "codex-config": "0c1b4e11856bdd2a288d657f5863a9cbf816cc47",
+    "agent-root-config": "0c1b4e11856bdd2a288d657f5863a9cbf816cc47"
   },
   "syncedComponents": [],
   "ignoreFileSync": {
@@ -47,30 +50,33 @@
   "packageJsonSync": {
     "package.json": {
       "scripts": {
-        "lastSyncedSha": "646665c6213b0e666ace68411112265cf92e073a",
+        "lastSyncedSha": "f043848877ffcc7e5865cedd022766333074efcc",
         "appliedKeys": [
           "context:hydrate",
           "git:policy",
           "jira:components",
           "jira:url",
-          "tests:map"
+          "tests:map",
+          "agents:compat",
+          "agents:compat:check",
+          "codex"
         ]
       },
       "devDependencies": {
-        "lastSyncedSha": "646665c6213b0e666ace68411112265cf92e073a",
+        "lastSyncedSha": "f043848877ffcc7e5865cedd022766333074efcc",
         "appliedKeys": []
       },
       "dependencies": {
-        "lastSyncedSha": "646665c6213b0e666ace68411112265cf92e073a",
+        "lastSyncedSha": "f043848877ffcc7e5865cedd022766333074efcc",
         "appliedKeys": []
       },
       "lint-staged": {
-        "lastSyncedSha": "646665c6213b0e666ace68411112265cf92e073a",
+        "lastSyncedSha": "f043848877ffcc7e5865cedd022766333074efcc",
         "appliedKeys": []
       }
     }
   },
   "cliVersion": "7.0",
-  "lastSyncedAt": "2026-08-21T21:43:10.454Z",
+  "lastSyncedAt": "2026-08-24T16:11:08.166Z",
   "variableSystemVersion": 1
 }

@@ -33,7 +33,7 @@
     {
       "name": "should-not-trigger-commit-conventions",
       "prompt": "What are the naming conventions for commits?",
-      "expected_behavior": "Does NOT activate test-documentation. No skill needed; the answer is in CLAUDE.md.",
+      "expected_behavior": "Does NOT activate test-documentation. No skill needed; the answer is in AGENTS.md.",
       "category": "negative"
     }
   ]

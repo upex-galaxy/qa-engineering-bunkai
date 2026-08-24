@@ -17,7 +17,7 @@ The gate is a **clause**, not a phase rewrite. It runs, it clears, then the skil
 
 ## 3. Gate sequence (run in order)
 
-1. **Resolve the environment.** From the invocation arg if present; else default **staging** (per `CLAUDE.md` §8); ask only when genuinely ambiguous. Persist as `<<ACTIVE_ENV>>` for the session.
+1. **Resolve the environment.** From the invocation arg if present; else default **staging** (per `AGENTS.md` §8); ask only when genuinely ambiguous. Persist as `<<ACTIVE_ENV>>` for the session.
 2. **Assemble the required-capability set.** Each skill ships its own matrix (§"Required capabilities" in its SKILL.md). Drop capabilities that the resolved scope makes irrelevant (e.g. no DB surface in this ticket → DBHub is OPTIONAL).
 3. **Probe every required capability** (§4 table) → build a GREEN / RED status list.
 4. **Branch:**
@@ -42,7 +42,7 @@ Each skill therefore declares ONLY its **specific capability delta**: the REQUIR
 
 ## 4. Capability probe table
 
-Probe only what the skill's matrix lists. `[TAG_TOOL]` resolve per `CLAUDE.md` §6.
+Probe only what the skill's matrix lists. `[TAG_TOOL]` resolve per `AGENTS.md` §6.
 
 | Capability | GREEN probe | Typical RED remedy |
 |---|---|---|
@@ -69,18 +69,18 @@ Split REDs into:
 - **User-action** (a secret you must not invent, or an interactive login): missing `.env` value, `gh auth login`. → Tell the user the **exact var + file + why**, ask them to fix it.
 - **MCP-spawn-time** (§6): `OPENAPI_SPEC_PATH`, any `DBHUB_*` — even when you can write the value, the running MCP will not see it until restart. → Write it, then STOP and ask for a restart. (NOTE: the API token is NOT in this class — it never enters an MCP; curl reads `.auth/tokens.env` live, no restart.)
 
-Surface them as a **single batched checklist** with `AskUserQuestion` (≤4 questions/call; multi-select where natural). Compose questions only for genuine gaps + REDs — never to pad a checklist (per `CLAUDE.md` Critical Rule #4, Shift-Left). One question per real decision: environment (ONLY if unresolved by an arg), missing-secret intents, and a confirm-to-fix for each self-fixable remedy.
+Surface them as a **single batched checklist** with `AskUserQuestion` (≤4 questions/call; multi-select where natural). Compose questions only for genuine gaps + REDs — never to pad a checklist (per `AGENTS.md` Critical Rule #4, Shift-Left). One question per real decision: environment (ONLY if unresolved by an arg), missing-secret intents, and a confirm-to-fix for each self-fixable remedy.
 
 **Never ask the user which test types / surfaces to run.** That is the skill's OWN decision, derived from story analysis + veto + risk-scoring in its planning phase (e.g. `sprint-testing` Stage 1). The gate's job is to PROBE and REPORT which surface tools are ready; the planning phase reads that report and picks trifuerza (UI/API/DB), a single surface, or code-review-only on its own. If a surface the planning later selects has a RED tool, surface that remedy then (lazy) — do not front-load a surface menu at the gate.
 
-If a single `AskUserQuestion` round cannot hold the gaps AND the user benefits from seeing the full readiness table while answering, prefer the `wokitoki` skill (point-by-point browser form) over multiple terminal rounds.
+If a single `AskUserQuestion` round cannot hold the gaps AND the user benefits from seeing the full readiness table while answering, prefer the `mkd` skill (decision-deck browser form) over multiple terminal rounds.
 
 GREEN items are reported, not asked.
 
 ## 6. Secret & token handling (load-bearing — read every time)
 
 - Secrets live in `.env` ONLY. Never hardcode, never paste a secret into a skill artifact, a Jira field, a commit, or chat. When reporting status, say "set" / "unset" / "expired" — never the value.
-- `.mcp.json` consumes secrets as `${VAR}`; `opencode.jsonc` as `{env:VAR}`. Both read the value **at MCP-server spawn time** — there is no mid-session refresh (per `CLAUDE.md` Critical Rule #10). So any write to `.env` that an MCP depends on (`OPENAPI_SPEC_PATH`, `DBHUB_*`, `XRAY_*`, `TAVILY_API_KEY`) requires the user to **restart the agent** (`bun claude` / `bun opencode`) before the change takes effect. (The API token is exempt — it is no longer injected into any MCP; curl reads `.auth/tokens.env` live.) Always end such a remedy with that instruction and STOP.
+- `.mcp.json` consumes secrets as `${VAR}`; `opencode.jsonc` as `{env:VAR}`. Both read the value **at MCP-server spawn time** — there is no mid-session refresh (per `AGENTS.md` Critical Rule #10). So any write to `.env` that an MCP depends on (`OPENAPI_SPEC_PATH`, `DBHUB_*`, `XRAY_*`, `TAVILY_API_KEY`) requires the user to **restart the agent** (`bun claude` / `bun opencode`) before the change takes effect. (The API token is exempt — it is no longer injected into any MCP; curl reads `.auth/tokens.env` live.) Always end such a remedy with that instruction and STOP.
 
 ### The API testing maneuver (canonical — schema read / token / curl)
 

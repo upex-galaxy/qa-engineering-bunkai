@@ -57,7 +57,7 @@ Eight strategies are supported. Each one tells the skill where new branches star
 
 - `git branch -a` shows `main` (or `master`) AND exactly one of `{staging, dev, develop, integration}` upstream.
 - Branch protection rules on both branches (if visible via `gh api`).
-- `CLAUDE.md` mentions both branches in a "Git Workflow" section.
+- `AGENTS.md` mentions both branches in a "Git Workflow" section.
 
 **Source branch for new work**: integration branch (e.g. `staging`).
 
@@ -395,7 +395,7 @@ The chosen plan is a **contract** for execution. If the actual diff exceeds the 
 
 ## git_strategy field rules (per strategy)
 
-Strategy Setup (SKILL.md 3.6) no longer renders a prose runbook into `CLAUDE.md` — it **populates the `git_strategy:` block in `.agents/project.yaml`** (in place, preserving the rest of the file), the single source of truth. This section is the authoritative reference for WHAT field VALUES each strategy writes into that block. The detailed operational HOW (release commands, hotfix commands, invariant prose) is NOT persisted anywhere — it lives in this catalogue (the per-strategy sections above) and in `references/sdet-integration-trunk.md`, read on demand. (The yaml snippets below show only the `git_strategy` block; everything nests under that key inside `.agents/project.yaml`.)
+Strategy Setup (SKILL.md 3.6) no longer renders a prose runbook into `AGENTS.md` — it **populates the `git_strategy:` block in `.agents/project.yaml`** (in place, preserving the rest of the file), the single source of truth. This section is the authoritative reference for WHAT field VALUES each strategy writes into that block. The detailed operational HOW (release commands, hotfix commands, invariant prose) is NOT persisted anywhere — it lives in this catalogue (the per-strategy sections above) and in `references/sdet-integration-trunk.md`, read on demand. (The yaml snippets below show only the `git_strategy` block; everything nests under that key inside `.agents/project.yaml`.)
 
 The conceptual blocks that the old runbook rendered now map to `git_strategy` fields:
 
@@ -627,7 +627,7 @@ git_strategy:
     tests. Each test suite runs on an ephemeral integration trunk `test/<module>-suite` (created
     off `main`, deleted after the suite merges). Tickets chain through the trunk; one final
     reviewed PR promotes the suite to `main`. Full runbook:
-    .claude/skills/git-flow-master/references/sdet-integration-trunk.md
+    .agents/skills/git-flow-master/references/sdet-integration-trunk.md
   branches:
     production: main
     integration: null                       # the trunk is ephemeral, not a fixed long-lived branch

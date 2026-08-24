@@ -45,7 +45,7 @@ Every retrofitted skill writes its session state under a single tree at the repo
 
 Rules:
 
-- `<skill-slug>` matches the skill's directory name under `.claude/skills/`.
+- `<skill-slug>` matches the skill's directory name under `.agents/skills/`.
 - `<scope>` is invocation-specific (see §9 for the naming convention per skill). Project-scope skills omit it entirely — files live directly at `.session/<skill-slug>/{plan.md, progress.md}`.
 - `.session/` is **gitignored** in both repos. The contents are work-in-progress orchestration scaffolding, not committed deliverables. Audit history lives in (a) Engram observations under the `session/...` topic prefix, (b) the canonical domain artifacts each skill already commits to `.context/...`.
 - `.session/.archive/` is also gitignored. The archive exists for local resume-replay and human inspection during the same session; long-term audit is delegated to Engram.
@@ -192,7 +192,7 @@ Fields:
 
 ### The Git Ledger (`sdet` integration-trunk suites)
 
-For a chained test-automation suite running the `sdet` strategy (`.claude/skills/git-flow-master/references/sdet-integration-trunk.md`), git state lives across many branches and multiple `/test-automation` invocations. The `git:` field turns `progress.md` into an **append-only ledger** of where the suite's branches stand, so a different session (or a different agent) resuming via Phase 0 reads the tail and knows exactly how the integration trunk was left — without re-deriving it from `git log`.
+For a chained test-automation suite running the `sdet` strategy (`.agents/skills/git-flow-master/references/sdet-integration-trunk.md`), git state lives across many branches and multiple `/test-automation` invocations. The `git:` field turns `progress.md` into an **append-only ledger** of where the suite's branches stand, so a different session (or a different agent) resuming via Phase 0 reads the tail and knows exactly how the integration trunk was left — without re-deriving it from `git log`.
 
 Each ledger line is one append-only snapshot at a phase boundary or branch action. Recommended shape:
 

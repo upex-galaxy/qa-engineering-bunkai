@@ -404,7 +404,7 @@ Rules:
 
 ## 9. Pseudocode — common entity operations
 
-All operations use `[TMS_TOOL]` for TMS-specific actions and `[ISSUE_TRACKER_TOOL]` for generic issue operations. Resolution via CLAUDE.md Tool Resolution (Xray CLI, Jira CLI, or MCP fallback).
+All operations use `[TMS_TOOL]` for TMS-specific actions and `[ISSUE_TRACKER_TOOL]` for generic issue operations. Resolution via AGENTS.md Tool Resolution (Xray CLI, Jira CLI, or MCP fallback).
 
 ### List and read
 
@@ -435,7 +435,7 @@ Pseudocode splits by TMS modality — pick the block matching the resolution fro
 
 When the candidate list has more than 10 TCs, creating them serially burns the orchestrator's context with raw API responses. Shard the list into chunks of ~5-10 TCs per subagent, cap total subagents at 10. The orchestrator pre-creates the ATS / ATP / ATR (Phase 3 §Linking order — Set-first, steps 1-4) **before** dispatching — only the per-TC writes (step 5) are parallelised; the Set-first closure (deriving the Plan/Execution test lists from the ATS membership) runs after aggregation. See SKILL.md §Subagent Dispatch Strategy for the per-phase pattern table.
 
-**Sharding rule**: `ceil(N / 10)` subagents, each handling roughly equal-sized chunks. If `N > 100`, chunks must be larger than 10 each (cap is on subagent count, not chunk size). Each dispatch follows the 7-component briefing format in `.claude/skills/agentic-qa-core/references/briefing-template.md`.
+**Sharding rule**: `ceil(N / 10)` subagents, each handling roughly equal-sized chunks. If `N > 100`, chunks must be larger than 10 each (cap is on subagent count, not chunk size). Each dispatch follows the 7-component briefing format in `.agents/skills/agentic-qa-core/references/briefing-template.md`.
 
 ##### Modality jira-xray (subagent loads `/xray-cli`)
 
@@ -447,10 +447,10 @@ Goal: Create <K> Xray Test issues in Jira project <PROJECT_KEY> for chunk <I>/<T
 Context docs:
   - .session/test-documentation/<scope>/ (session contract artifact — the TC designs Phase 1-2 wrote; the definitions for this chunk live here, NOT in test-specs/, which holds keys only)
   - .agents/jira-fields.json (custom field IDs)
-  - .claude/skills/test-documentation/references/tms-architecture.md (TC body shape, naming, linking order)
-  - .claude/skills/test-documentation/references/jira-test-management.md §7 (Description template)
+  - .agents/skills/test-documentation/references/tms-architecture.md (TC body shape, naming, linking order)
+  - .agents/skills/test-documentation/references/jira-test-management.md §7 (Description template)
 
-Project Standards (auto-resolved): pulled from .claude/skills/REGISTRY.md per skill-resolver protocol
+Project Standards (auto-resolved): pulled from .agents/skills/REGISTRY.md per skill-resolver protocol
 
 Skills to load: /xray-cli, /acli
 
@@ -503,10 +503,10 @@ Context docs:
   - .session/test-documentation/<scope>/ (session contract artifact — the TC designs Phase 1-2 wrote; the definitions for this chunk live here, NOT in test-specs/, which holds keys only)
   - .agents/jira-fields.json (custom field IDs auto-discovered by `bun run jira:sync-fields`)
   - .agents/jira-required.yaml (custom-field manifest)
-  - .claude/skills/test-documentation/references/jira-setup.md §3 (Modality jira-native field layout)
-  - .claude/skills/test-documentation/references/jira-test-management.md §7 (Description template)
+  - .agents/skills/test-documentation/references/jira-setup.md §3 (Modality jira-native field layout)
+  - .agents/skills/test-documentation/references/jira-test-management.md §7 (Description template)
 
-Project Standards (auto-resolved): pulled from .claude/skills/REGISTRY.md per skill-resolver protocol
+Project Standards (auto-resolved): pulled from .agents/skills/REGISTRY.md per skill-resolver protocol
 
 Skills to load: /acli
 

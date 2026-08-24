@@ -12,7 +12,7 @@ This reference defines the delta only. Anything not overridden here behaves exac
 
 ```
 Source of truth (cited, not duplicated):
-  .claude/skills/sprint-testing/references/acceptance-test-planning.md
+  .agents/skills/sprint-testing/references/acceptance-test-planning.md
 
 Phases run by the Refinement subagent:
   Phase 1  Critical Analysis        -> run as-is, light code reads only
@@ -243,7 +243,7 @@ The orchestrator presents the per-Story summary to the user, waits for OK, then 
 4. **Cite, do not duplicate.** `acceptance-test-planning.md` is the source of truth for Phases 1-5 mechanics. If a future change to that file affects shift-left, the change propagates automatically.
 5. **Coverage estimate matters.** PO uses the per-Type counts to estimate Story points. Always include the table even if some Types are 0.
 6. **Module-context reuse.** If `.context/PBI/epics/EPIC-<EPIC_KEY>-<slug>/module-context.md` exists (module = Epic, 1:1), read it and skip module-level code exploration. Story-level reads only.
-7. **Output language**: artifact + Jira-bound content in English. Mirror user's language only in conversation. CLAUDE.md §1 Rule #14.
+7. **Output language**: artifact + Jira-bound content in English. Mirror user's language only in conversation. AGENTS.md §1 Rule #14.
 
 ---
 

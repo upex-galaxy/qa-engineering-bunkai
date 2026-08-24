@@ -12,7 +12,7 @@ How to create and maintain Test / ATP / ATR artifacts in Jira — both with and 
 
 ### Tool tags used here
 
-- `[ISSUE_TRACKER_TOOL]` — generic Jira operations (create issue, update fields, link issues, transition, search). Primary = `/acli` skill. Resolves per CLAUDE.md Tool Resolution.
+- `[ISSUE_TRACKER_TOOL]` — generic Jira operations (create issue, update fields, link issues, transition, search). Primary = `/acli` skill. Resolves per AGENTS.md Tool Resolution.
 - `[TMS_TOOL]` — Xray-specific operations (create Test, create Test Execution, import results). Only resolvable in **Modality jira-xray** via `/xray-cli`. In Modality jira-native falls through to `[ISSUE_TRACKER_TOOL]`.
 
 ---
@@ -573,7 +573,7 @@ Jira Native lacks run history per Test. If historical trend matters, store runs 
 
 ## 11. Local cache — markdown per TC (synced, never hand-authored)
 
-After TMS creation, run `bun run jira:sync-issues get <STORY_KEY>` — `scripts/sync-jira-issues.ts` materializes every `Test` issue linked to the Story into `.context/PBI/epics/EPIC-<KEY>-<slug>/stories/STORY-<KEY>-<slug>/test-cases/TEST-<KEY>-<slug>.md`. The directory is a `[SYNC]` Jira mirror (gitignored — see `CLAUDE.md` §9): this skill creates the `Test` issue, links it to the Story, syncs, and READS the materialized file — it never writes into `test-cases/`. This lets `test-automation` hand off without re-reading the TMS. So everything below (Gherkin, Variables table, Refinement Notes, the `outcome` / `labels` metadata) must land in the `Test` issue itself — the Description via the full §7 template, labels as Jira labels — because the synced file only mirrors what Jira holds. A generated file looks like this:
+After TMS creation, run `bun run jira:sync-issues get <STORY_KEY>` — `scripts/sync-jira-issues.ts` materializes every `Test` issue linked to the Story into `.context/PBI/epics/EPIC-<KEY>-<slug>/stories/STORY-<KEY>-<slug>/test-cases/TEST-<KEY>-<slug>.md`. The directory is a `[SYNC]` Jira mirror (gitignored — see `AGENTS.md` §9): this skill creates the `Test` issue, links it to the Story, syncs, and READS the materialized file — it never writes into `test-cases/`. This lets `test-automation` hand off without re-reading the TMS. So everything below (Gherkin, Variables table, Refinement Notes, the `outcome` / `labels` metadata) must land in the `Test` issue itself — the Description via the full §7 template, labels as Jira labels — because the synced file only mirrors what Jira holds. A generated file looks like this:
 
 ```markdown
 # TEST: PROJ-123: TC1: should grant access when credentials are valid

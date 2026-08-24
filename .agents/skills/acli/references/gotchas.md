@@ -258,7 +258,7 @@ The plain `-b, --body` flag remains plain text only — Markdown syntax is store
 **Recommended pattern.** Author the comment body in Markdown, convert via `scripts/md-to-adf.ts`, post with `-F`:
 
 ```bash
-bun .claude/skills/acli/scripts/md-to-adf.ts notes.md notes.adf.json
+bun .agents/skills/acli/scripts/md-to-adf.ts notes.md notes.adf.json
 acli jira workitem comment create --key {{PROJECT_KEY}}-123 -F notes.adf.json
 ```
 

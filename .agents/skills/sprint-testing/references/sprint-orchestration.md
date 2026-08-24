@@ -211,9 +211,9 @@ Once chosen: note ID / type / title / priority, check for an existing `test-sess
 
 ## Sub-agent prompt templates
 
-Every dispatch uses the **7-component briefing format** defined in `.claude/skills/agentic-qa-core/references/briefing-template.md` (Goal / Context docs / Project Standards (auto-resolved) / Skills to load / Exact instructions / Report format / Rules). The four briefings below cover the per-ticket cadence (Session Start -> Stage 1 -> Stage 2 -> Stage 3) and are used VERBATIM in BOTH single-ticket and batch modes — single-ticket runs them once, batch loops them per Wave 1 PENDING ticket. Detailed step instructions live in the stage-specific reference — do NOT duplicate them here.
+Every dispatch uses the **7-component briefing format** defined in `.agents/skills/agentic-qa-core/references/briefing-template.md` (Goal / Context docs / Project Standards (auto-resolved) / Skills to load / Exact instructions / Report format / Rules). The four briefings below cover the per-ticket cadence (Session Start -> Stage 1 -> Stage 2 -> Stage 3) and are used VERBATIM in BOTH single-ticket and batch modes — single-ticket runs them once, batch loops them per Wave 1 PENDING ticket. Detailed step instructions live in the stage-specific reference — do NOT duplicate them here.
 
-> **Variable resolution**: `<TICKET_KEY>`, `<EPIC_KEY>`, `<EPIC_SLUG>`, `<STORY_SLUG>`, `<PBI_FOLDER>`, `<SESSION_DIR>`, `<ENV>` are session variables filled by the orchestrator before dispatch. `{{PROJECT_KEY}}`, `{{WEB_URL}}`, `{{API_URL}}`, `{{API_MCP}}`, `{{DB_MCP}}` resolve from `.agents/project.yaml` per `CLAUDE.md` §"Project Variables".
+> **Variable resolution**: `<TICKET_KEY>`, `<EPIC_KEY>`, `<EPIC_SLUG>`, `<STORY_SLUG>`, `<PBI_FOLDER>`, `<SESSION_DIR>`, `<ENV>` are session variables filled by the orchestrator before dispatch. `{{PROJECT_KEY}}`, `{{WEB_URL}}`, `{{API_URL}}`, `{{API_MCP}}`, `{{DB_MCP}}` resolve from `.agents/project.yaml` per `AGENTS.md` §"Project Variables".
 >
 > | Variable | Resolves to | Holds |
 > |---|---|---|
@@ -234,12 +234,12 @@ Every dispatch uses the **7-component briefing format** defined in `.claude/skil
 Goal: Fetch ticket <TICKET_KEY> from the issue tracker, load relevant context, create the PBI folder, and return a session-start report.
 
 Context docs:
-  - <<REPO_ROOT>>/CLAUDE.md (§"Local Context (PBI)" folder convention)
+  - <<REPO_ROOT>>/AGENTS.md (§"Local Context (PBI)" folder convention)
   - <<REPO_ROOT>>/.context/master-test-plan.md
   - <<REPO_ROOT>>/.context/business/business-data-map.md
   - <<REPO_ROOT>>/.context/business/business-feature-map.md
   - <<REPO_ROOT>>/.context/business/business-api-map.md
-  - <<REPO_ROOT>>/.claude/skills/sprint-testing/references/session-entry-points.md
+  - <<REPO_ROOT>>/.agents/skills/sprint-testing/references/session-entry-points.md
   - <<REPO_ROOT>>/.agents/project.yaml (project metadata + active env)
 
 Skills to load: none required for the read (detailed fetch uses bun run jira:sync-issues, not /acli)
@@ -293,7 +293,7 @@ Goal: Produce ATP, risk-triage, and draft TCs for <TICKET_KEY> in <PBI_FOLDER>; 
 Context docs:
   - <PBI_FOLDER>/context.md (output of Session Start)
   - <SESSION_DIR>/test-session-memory.md (READ FIRST — shared memory)
-  - <<REPO_ROOT>>/.claude/skills/sprint-testing/references/acceptance-test-planning.md
+  - <<REPO_ROOT>>/.agents/skills/sprint-testing/references/acceptance-test-planning.md
   - <<REPO_ROOT>>/.context/business/business-feature-map.md
   - <<REPO_ROOT>>/.context/business/business-api-map.md (if API-affecting)
   - <<REPO_ROOT>>/.context/PBI/epics/EPIC-<EPIC_KEY>-<EPIC_SLUG>/module-context.md (if it exists)
@@ -351,14 +351,14 @@ Context docs:
   - <PBI_FOLDER>/acceptance-test-plan.md (the ATP from Stage 1 — Jira-synced cache; Modality jira-xray: .context/PBI/test-plans/TESTPLAN-<ATP_KEY>-<slug>.md)
   - <SESSION_DIR>/test-session-memory.md (READ FIRST — shared memory)
   - <PBI_FOLDER>/context.md
-  - <<REPO_ROOT>>/.claude/skills/sprint-testing/references/exploration-patterns.md
+  - <<REPO_ROOT>>/.agents/skills/sprint-testing/references/exploration-patterns.md
   - <<REPO_ROOT>>/.agents/project.yaml (active env URLs and MCP names)
   - <<REPO_ROOT>>/.context/business/business-data-map.md (entity flows for DB exploration)
 
 Skills to load: /playwright-cli (UI exploration); the active environment's API and DB MCPs ({{API_MCP}} and {{DB_MCP}} from project.yaml). For Bug tickets in Modality jira-xray: also /xray-cli (repro-Test creation at fix-verification time, step 7) + /acli (the Bug↔Test link).
 
 Exact instructions:
-  1. Mark the ticket as actively testing (substrate-driven, idempotent, non-blocking). Resolve `{{jira.transition.<work_type>.start_testing}}` and `{{jira.status.<work_type>.in_test}}` from `.agents/jira-workflows.json` (per CLAUDE.md §"Project Variables"). Call `[ISSUE_TRACKER_TOOL] Get Transitions` for `<TICKET_KEY>`. Skip (and emit `skipped_reason`) if any of these hold:
+  1. Mark the ticket as actively testing (substrate-driven, idempotent, non-blocking). Resolve `{{jira.transition.<work_type>.start_testing}}` and `{{jira.status.<work_type>.in_test}}` from `.agents/jira-workflows.json` (per AGENTS.md §"Project Variables"). Call `[ISSUE_TRACKER_TOOL] Get Transitions` for `<TICKET_KEY>`. Skip (and emit `skipped_reason`) if any of these hold:
        - current status already equals `{{jira.status.<work_type>.in_test}}` -> `"already_in_test"`
        - the substrate slug is undefined for `<work_type>` (e.g. Bug work types without an intermediate in-testing state) -> `"no_in_test_state_for_<work_type>"`
        - the resolved transition id is not available from the current status -> `"transition_not_available_from_<current_status>"`
@@ -407,7 +407,7 @@ Context docs:
   - <SESSION_DIR>/test-session-memory.md (READ FIRST — shared memory; contains Stage 2 results)
   - <PBI_FOLDER>/evidence/ (Stage 2 evidence)
   - <PBI_FOLDER>/context.md (ticket summary)
-  - <<REPO_ROOT>>/.claude/skills/sprint-testing/references/reporting-templates.md
+  - <<REPO_ROOT>>/.agents/skills/sprint-testing/references/reporting-templates.md
   - <<REPO_ROOT>>/.agents/jira-fields.json (custom field IDs for ATR/ATP — Modality jira-native only)
 
 Skills to load: /acli (issue updates + comments + transitions + bug creation); in Modality jira-xray also /xray-cli (only when ATR is an Xray Test Execution and Test Run statuses must be updated).
@@ -462,7 +462,7 @@ Rules:
   - Apply the bug summary format from reporting-templates.md §1.2 verbatim (no improvisation).
   - On 4xx/5xx from any [ISSUE_TRACKER_TOOL] / [TMS_TOOL] call: stop, report partial state, do NOT auto-retry the transition.
   - Critical Rule #3 (No AI Attribution): the QA comment must look human-authored.
-  - All TMS content in English (Critical Rule from CLAUDE.md §"Language").
+  - All TMS content in English (Critical Rule from AGENTS.md §"Language").
 ```
 
 ### Shared sub-agent shell (legacy — kept for memory bookkeeping)

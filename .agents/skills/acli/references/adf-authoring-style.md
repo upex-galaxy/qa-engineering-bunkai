@@ -4,7 +4,7 @@ The bundled converter (`scripts/md-to-adf.ts`) and the "Publishing rich text" se
 
 It is a **style guide, not a mandate generator**. It teaches the generic palette and the decision rules. *Which* structure suits *which* field (an ATP body vs an acceptance-criteria field vs a scope list) is domain knowledge owned by the consuming workflow skill — this file is what those skills cite so the generic doctrine stays single-source and DRY across every field and both boilerplates.
 
-> **Doctrine anchor**: the host `CLAUDE.md` already prescribes a **Visual Mapping Bias** for the AI's own replies — "prefer a table / diagram over a paragraph when content is naturally mappable." This file extends that exact belief to the artifacts the AI writes *into Jira*. Same philosophy, new surface. It is not new doctrine — it is consistency.
+> **Doctrine anchor**: the host `AGENTS.md` already prescribes a **Visual Mapping Bias** for the AI's own replies — "prefer a table / diagram over a paragraph when content is naturally mappable." This file extends that exact belief to the artifacts the AI writes *into Jira*. Same philosophy, new surface. It is not new doctrine — it is consistency.
 
 ## Table of contents
 
@@ -93,11 +93,11 @@ Then author `@[Person Name](<accountId>)`. Verified live: the node round-trips a
 
 ```bash
 # attach a screenshot to a bug AND post it as an evidence comment in one call
-bun .claude/skills/acli/scripts/jira-attach-media.ts BUG-123 ./repro-step-3.png \
+bun .agents/skills/acli/scripts/jira-attach-media.ts BUG-123 ./repro-step-3.png \
   --caption "Repro step 3 — validation error not shown" --publish
 
 # or just emit the media node JSON to splice into a larger ADF body you are assembling
-bun .claude/skills/acli/scripts/jira-attach-media.ts BUG-123 ./diagram.png --doc > media.adf.json
+bun .agents/skills/acli/scripts/jira-attach-media.ts BUG-123 ./diagram.png --doc > media.adf.json
 ```
 
 The helper auto-detects PNG / JPEG / GIF dimensions (pass `--width`/`--height` for video or other formats), and `collection` is always stored as `""` (Jira ignores the input). Reach for media when a picture genuinely beats words — a bug screenshot, a failing-UI capture, an architecture diagram — not for decoration. The image must be uploaded to the *same issue* it is embedded in.

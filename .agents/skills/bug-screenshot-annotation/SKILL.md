@@ -63,7 +63,7 @@ The standing lesson: **QA evidence containing real product or customer data neve
 9. **(Optional — this repo's upgrade over the manual-attach model.) Embed into the bug issue.** Jira accepts inline images via the bundled helper — offer to publish the annotated PNG directly as an evidence comment on the bug (human confirms first):
 
    ```bash
-   bun .claude/skills/acli/scripts/jira-attach-media.ts <BUG-KEY> \
+   bun .agents/skills/acli/scripts/jira-attach-media.ts <BUG-KEY> \
      ./evidence/<KEY>-BUG-<BUG-KEY>-annotated.png \
      --caption "Annotated evidence — <one-line defect summary>" --publish
    ```

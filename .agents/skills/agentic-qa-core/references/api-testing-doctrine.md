@@ -30,7 +30,7 @@ The OpenAPI MCP (`@ivotoby/openapi-mcp-server`) is intentionally **not** used fo
 - It has **no schema-only mode** (`--tools` = `all | dynamic | explicit`; `dynamic` still ships an `invoke-api-endpoint` tool). The guard is that **no credential is injected into the MCP** — so any execution attempt hits the API unauthenticated and fails (401). That failure is the signal to use curl.
 - Static `API_HEADERS` bearer injection **does not refresh** — an expiring token 401s mid-session.
 - If the spec declares an `Authorization` header parameter, it **collides** with an injected auth header and the call throws `Cannot override authentication header`.
-- Keeping the token out of the MCP also **removes the spawn-time restart requirement** (CLAUDE.md Critical Rule #10 no longer bites for API auth — changing the token is picked up by the next curl immediately).
+- Keeping the token out of the MCP also **removes the spawn-time restart requirement** (AGENTS.md Critical Rule #10 no longer bites for API auth — changing the token is picked up by the next curl immediately).
 
 ---
 

@@ -321,7 +321,7 @@ acli jira workitem comment create --key "{{PROJECT_KEY}}-123" --editor
 `comment create` accepts ADF via `-F, --body-file`. The flag's `--help` text reads "Plain text file with text or Atlassian Document Format (ADF)"; when the file begins with `{`, `acli` forwards the content as ADF. The legacy two-step workaround (create placeholder body → `comment update --body-adf`) is no longer required as of `acli` v1.3.18+. To author rich comments:
 
 ```bash
-bun .claude/skills/acli/scripts/md-to-adf.ts notes.md notes.adf.json
+bun .agents/skills/acli/scripts/md-to-adf.ts notes.md notes.adf.json
 acli jira workitem comment create --key {{PROJECT_KEY}}-123 -F notes.adf.json
 ```
 

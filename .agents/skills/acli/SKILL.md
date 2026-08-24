@@ -32,7 +32,7 @@ The body below covers the core that applies to almost every session. The `refere
 Steps for protocol consistency:
 
 1. Read `complementary_categories` from this skill's frontmatter (`issue-tracker`).
-2. Resolve via the host repo's skill-registry cache (`.claude/skills/REGISTRY.md`, built by `scripts/build-skill-registry.ts`). Fallback: scan the session-start `system-reminder` skill list.
+2. Resolve via the host repo's skill-registry cache (`.agents/skills/REGISTRY.md`, built by `scripts/build-skill-registry.ts`). Fallback: scan the session-start `system-reminder` skill list.
 3. Apply the threshold rule per the host repo's skill-composition strategy doc (T1 / T3 silent; T4 ASK).
 4. The Atlassian MCP fallback documented below is OPT-IN, not a skill — enable manually via `docs/mcp/`.
 
@@ -200,22 +200,22 @@ To publish anything richer than plain prose, use this three-step workflow by def
 
 ### The bundled converter
 
-Location: `.claude/skills/acli/scripts/md-to-adf.ts`. Runtime: Bun.
+Location: `.agents/skills/acli/scripts/md-to-adf.ts`. Runtime: Bun.
 
 CLI usage:
 
 ```bash
-bun .claude/skills/acli/scripts/md-to-adf.ts input.md output.adf.json
+bun .agents/skills/acli/scripts/md-to-adf.ts input.md output.adf.json
 # stdin form
-cat input.md | bun .claude/skills/acli/scripts/md-to-adf.ts - output.adf.json
+cat input.md | bun .agents/skills/acli/scripts/md-to-adf.ts - output.adf.json
 # stdout form (omit output arg)
-bun .claude/skills/acli/scripts/md-to-adf.ts input.md > output.adf.json
+bun .agents/skills/acli/scripts/md-to-adf.ts input.md > output.adf.json
 ```
 
 Programmatic usage (when batching across many fields or many work items in one script):
 
 ```typescript
-import { mdToAdf, validateAdf } from "./.claude/skills/acli/scripts/md-to-adf.ts";
+import { mdToAdf, validateAdf } from "./.agents/skills/acli/scripts/md-to-adf.ts";
 const adf = mdToAdf(markdownString);  // returns { type: "doc", version: 1, content: [...] }
 const { valid, errors } = validateAdf(adf);  // gate ANY ADF before publishing
 ```
@@ -248,10 +248,10 @@ What it catches: unknown node types, unknown / invalid marks, `code` co-occurrin
 
 ```bash
 # validate is on by default during conversion; bypass with --no-validate
-bun .claude/skills/acli/scripts/md-to-adf.ts input.md out.adf.json --no-validate
+bun .agents/skills/acli/scripts/md-to-adf.ts input.md out.adf.json --no-validate
 
 # gate an ALREADY-assembled ADF doc (jq create payload field, or a REST PUT body)
-bun .claude/skills/acli/scripts/md-to-adf.ts --check field.adf.json   # exit 0 valid, 1 invalid
+bun .agents/skills/acli/scripts/md-to-adf.ts --check field.adf.json   # exit 0 valid, 1 invalid
 ```
 
 **Recommended habit**: after splicing ADF into a `--from-json` create payload or a REST `PUT` body (where the wrapper is assembled outside the converter), run `--check` on each ADF field before sending. The gate is necessary but not sufficient — a round-trip `GET` of the field after write is still the only way to catch server-side coercion (Jira silently drops some invalid nodes).
@@ -292,8 +292,8 @@ Then the response is 200 OK
 MD
 
 # 2. Convert each MD file to ADF JSON
-bun .claude/skills/acli/scripts/md-to-adf.ts /tmp/desc.md /tmp/desc.adf.json
-bun .claude/skills/acli/scripts/md-to-adf.ts /tmp/ac.md   /tmp/ac.adf.json
+bun .agents/skills/acli/scripts/md-to-adf.ts /tmp/desc.md /tmp/desc.adf.json
+bun .agents/skills/acli/scripts/md-to-adf.ts /tmp/ac.md   /tmp/ac.adf.json
 
 # 3. Splice the ADF docs into the create-from-json payload
 jq -n \
@@ -353,7 +353,7 @@ cat > /tmp/new.md <<'MD'
 MD
 
 # 2. Convert MD → ADF
-bun .claude/skills/acli/scripts/md-to-adf.ts /tmp/new.md /tmp/new.adf.json
+bun .agents/skills/acli/scripts/md-to-adf.ts /tmp/new.md /tmp/new.adf.json
 
 # 3. Wrap the ADF doc in the REST `{ "fields": { ... } }` envelope
 #    (NOTE: same ADF payload acli would consume; only the wrapper key changes)
