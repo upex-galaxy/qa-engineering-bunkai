@@ -56,13 +56,14 @@ const JIRA_WORKFLOWS_JSON = join(REPO_ROOT, '.agents', 'jira-workflows.json');
 // Directories to scan recursively.
 const SCAN_ROOTS = [
   '.claude',
+  '.agents/skills',
   'templates',
   '.context',
 ];
 
 // Single root-level file to also scan.
 const SCAN_FILES = [
-  'CLAUDE.md',
+  'AGENTS.md',
 ];
 
 // Directories to skip outright while walking.
@@ -87,15 +88,18 @@ const SKIP_DIRS = new Set([
 // the linter ignores matches where both conditions hold.
 const DOC_META_ALLOWLIST: Array<[string, string]> = [
   // §Critical Rules rule 9: "Use [TAG_TOOL] pseudocode and {{VARIABLES}} for dynamic content"
-  ['VARIABLES', 'CLAUDE.md'],
+  ['VARIABLES', 'AGENTS.md'],
   // §Project Variables bootstrap instruction explaining the {{VAR_NAME}} syntax
-  ['VAR_NAME', 'CLAUDE.md'],
+  ['VAR_NAME', 'AGENTS.md'],
   // §Context Loading Map: ".agents/project.yaml — `{{VAR}}` source-of-truth"
-  ['VAR', 'CLAUDE.md'],
+  ['VAR', 'AGENTS.md'],
   // §Tool Resolution pseudocode type list: "`{{PROJECT_VAR}}` (from `.agents/project.yaml`)"
-  ['PROJECT_VAR', 'CLAUDE.md'],
-  // §3.5 Validate / §Verify checklist: adapt-framework.md documents the {{VAR}} syntax inside vars:check comments
-  ['VAR', 'adapt-framework.md'],
+  ['PROJECT_VAR', 'AGENTS.md'],
+  // §3.5 Validate / §Verify checklist: the adapt-framework workflow documents the
+  // {{VAR}} syntax inside `bun run vars:check` shell comments. The prose moved out of
+  // the retired `.claude/commands/adapt-framework.md` command body and now lives in the
+  // skill reference — keep the entry pinned to that path, not to a bare filename.
+  ['VAR', 'adapt-framework/references/adaptation-workflow.md'],
   // resend-cli (vendored community skill) reference docs use Resend's own
   // Handlebars-style triple-mustache {{{VAR_NAME}}} email-template placeholders —
   // third-party syntax unrelated to this repo's {{VAR}} project convention.
@@ -103,9 +107,9 @@ const DOC_META_ALLOWLIST: Array<[string, string]> = [
   ['VAR_NAME', 'resend-cli/references/templates.md'],
   ['NAME', 'resend-cli/references/workflows.md'],
   ['PLAN', 'resend-cli/references/workflows.md'],
-  // .context/infrastructure/backend.md documents package.json scripts in a table;
-  // the `vars:check` row quotes its own `{{VAR}}` target syntax as description text.
-  ['VAR', 'infrastructure/backend.md'],
+  // Generated scripts-reference table (project-discovery output) documents the
+  // `{{VAR}}` templating convention by name, same pattern as the AGENTS.md entry above.
+  ['VAR', '.context/infrastructure/backend.md'],
 ];
 
 // -----------------------------------------------------------------------------
@@ -466,9 +470,8 @@ function walkMarkdown(root: string, files: string[]): void {
   for (const name of entries) {
     const full = join(root, name);
 
-    // lstat — do not follow symlinks. CLAUDE.md is a symlink to CLAUDE.md, and
-    // we already include CLAUDE.md explicitly via SCAN_FILES; skipping symlinks
-    // avoids double-counting.
+    // lstat — do not follow symlinks. `.claude/skills` aliases the canonical
+    // `.agents/skills` tree, which SCAN_ROOTS already includes directly.
     let stat;
     try {
       stat = lstatSync(full);
@@ -621,13 +624,24 @@ const LINK_TYPE_SUBFIELDS = new Set(['name', 'outward', 'inward', 'fallback']);
  */
 const JIRA_RESERVED_SLUGS = new Set(['work_type', 'status', 'transition', 'link_types']);
 
+/**
+ * Repo paths, always `/`-separated, whatever the platform.
+ *
+ * `walkMarkdown` builds paths with `join()`, which emits `\` on Windows — including
+ * Windows-with-bash, where `process.platform` is still `win32` even though the shell
+ * is not. Every pattern in this file is written with `/`, so an unnormalised compare
+ * silently never matches there. Reported downstream (issue #26): the allowlist stopped
+ * suppressing its entries and `vars:check` failed with 7 phantom UNDECLARED errors,
+ * which blocks every commit through the pre-commit hook.
+ */
+function toPosix(filePath: string): string {
+  return filePath.replace(/\\/g, '/');
+}
+
 function isAllowlisted(varName: string, filePath: string): boolean {
-  // Allowlist entries are written with forward slashes; `path.join` produces
-  // backslash-separated paths on Windows, so normalize before comparing —
-  // otherwise every entry silently fails to match on that platform.
-  const normalizedPath = filePath.replaceAll('\\', '/');
+  const normalized = toPosix(filePath);
   return DOC_META_ALLOWLIST.some(
-    ([allowedName, fileSub]) => allowedName === varName && normalizedPath.includes(fileSub),
+    ([allowedName, fileSub]) => allowedName === varName && normalized.includes(toPosix(fileSub)),
   );
 }
 
@@ -1180,7 +1194,23 @@ function main(): void {
   }
   console.log('');
 
-  const totalWarnings = declaredButUnused.length + workTypeWarnings.length;
+  // Work types declared in the manifest that the workflow catalog does not carry.
+  // Distinct from the per-reference warnings above: those need something to WRITE
+  // {{jira.work_type.X}} somewhere, and a freshly declared type usually has no
+  // reference yet. That is the exact shape this missed — `subtask` was added to
+  // the manifest for /shift-left-testing, the catalog stayed at 13 types, and the
+  // two counts printed on adjacent lines above with nothing flagging the gap.
+  // Downstream that surfaces as `bun run jira:sync-workflows` demanding an
+  // ADMINISTER permission most users do not have, and the `--upex` fallback
+  // serving the same stale catalog.
+  //
+  // WARNING, never an error: a project that has not synced its catalogs yet is a
+  // legitimate state, and this file must not block its first commit.
+  const unsyncedWorkTypes = workflows === null
+    ? []
+    : [...manifest.workTypes.keys()].filter(wt => !(wt in workflows)).sort();
+
+  const totalWarnings = declaredButUnused.length + workTypeWarnings.length + unsyncedWorkTypes.length;
   console.log(`WARNINGS (${totalWarnings}):`);
   if (totalWarnings === 0) {
     console.log('  <none>');
@@ -1188,6 +1218,11 @@ function main(): void {
   else {
     for (const name of declaredButUnused) {
       console.log(`  - DECLARED_BUT_UNUSED: ${name}  (no occurrences in scanned files)`);
+    }
+    for (const wt of unsyncedWorkTypes) {
+      console.log(`  - WORK_TYPE_NOT_IN_CATALOG: '${wt}' is declared in jira-required.yaml but absent from jira-workflows.json`);
+      console.log('      Regenerate with `bun run jira:sync-workflows` (needs ADMINISTER), then commit the catalog.');
+      console.log('      Until then `--upex` serves the same stale copy, so it is not a workaround for this one.');
     }
     for (const w of workTypeWarnings) {
       const rel = relative(REPO_ROOT, w.file);

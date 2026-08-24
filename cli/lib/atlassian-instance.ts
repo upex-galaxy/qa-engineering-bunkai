@@ -99,15 +99,11 @@ export interface ResolvedAtlassianInstance {
 // ----------------------------------------------------------------------------
 
 /**
- * `cli/lib/` -> repo root.
- *
- * `import.meta.url` + `fileURLToPath`, not Bun's `import.meta.dir` — this
- * module is imported from `config/variables.ts`, which the Playwright VS Code
- * extension loads under plain Node.js. `import.meta.dir` is `undefined` there,
- * and `join(undefined, ...)` throws. `import.meta.url` is the one path
- * primitive both runtimes agree on.
+ * `cli/lib/` -> repo root. `import.meta.dir` is Bun-only; the CI Framework
+ * Validation check loads playwright.config under Node, where it is undefined
+ * and `join(undefined)` throws — fall back to the portable URL-based form.
  */
-const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
+const REPO_ROOT = join(import.meta.dir ?? dirname(fileURLToPath(import.meta.url)), '..', '..');
 const PROJECT_YAML_PATH = join(REPO_ROOT, '.agents', 'project.yaml');
 
 // ----------------------------------------------------------------------------
