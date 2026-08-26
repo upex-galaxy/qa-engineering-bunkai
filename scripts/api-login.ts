@@ -113,10 +113,14 @@ function buildAuthPayload(email: string, password: string): Record<string, strin
 
 /**
  * Extract token fields from the auth response.
- * Override this if your API returns tokens in a different shape.
  *
- * Expected response format (default):
- *   { access_token: string, token_type: string, expires_in: number, refresh_token?: string }
+ * Bunkai TMS `POST /api/v1/auth/signin` mints a PAT alongside the Supabase
+ * session in the same call and returns:
+ *   { user, session: { access_token, refresh_token, expires_at, token_type },
+ *     pat: { token, id, name, scopes, expires_at } }
+ * The PAT (`pat.token`) is used here, not the short-lived Supabase session
+ * token, because it is the long-lived credential meant for CLI/agent use and
+ * defaults to no expiry (`pat_expires_in_days` was not passed).
  */
 function extractTokenFromResponse(body: Record<string, unknown>): {
   accessToken: string
@@ -124,11 +128,12 @@ function extractTokenFromResponse(body: Record<string, unknown>): {
   expiresIn: number
   refreshToken: string | null
 } {
+  const pat = body.pat as Record<string, unknown> | undefined;
   return {
-    accessToken: String(body.access_token ?? ''),
-    tokenType: String(body.token_type ?? 'Bearer'),
-    expiresIn: Number(body.expires_in ?? 86400),
-    refreshToken: body.refresh_token ? String(body.refresh_token) : null,
+    accessToken: String(pat?.token ?? ''),
+    tokenType: 'Bearer',
+    expiresIn: 31536000, // pat.expires_at is null by default (no expiry); 1 year is metadata only
+    refreshToken: null,
   };
 }
 
