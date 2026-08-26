@@ -107,8 +107,8 @@ const DOC_META_ALLOWLIST: Array<[string, string]> = [
   ['VAR_NAME', 'resend-cli/references/templates.md'],
   ['NAME', 'resend-cli/references/workflows.md'],
   ['PLAN', 'resend-cli/references/workflows.md'],
-  // Generated scripts-reference table (project-discovery output) documents the
-  // `{{VAR}}` templating convention by name, same pattern as the AGENTS.md entry above.
+  // .context/infrastructure/backend.md script-reference table: "`{{VAR}}` template lint"
+  // describes the vars:check tool itself, same doc-meta shape as the AGENTS.md entry above.
   ['VAR', '.context/infrastructure/backend.md'],
 ];
 
