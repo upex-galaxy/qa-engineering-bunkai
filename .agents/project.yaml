@@ -25,7 +25,7 @@ database:
 issue_tracker:
   issue_tracker: Jira # Issue tracking tool (e.g. Jira)
   issue_tracker_cli: acli # CLI command to query tickets (e.g. acli (Jira) / gh issue (GitHub))
-  atlassian_url: 'https://upexgalaxy71.atlassian.net/' # Atlassian site base URL (e.g. https://company.atlassian.net) — same value as .env's ATLASSIAN_URL
+  atlassian_url: 'https://upexgalaxy72.atlassian.net/' # Atlassian site base URL (e.g. https://company.atlassian.net) — sole source, never mirrored in .env
 
 testing:
   default_env: staging # Default testing environment — must match a key under `environments:` (e.g. staging)
@@ -55,16 +55,16 @@ qa:
     master_test_plan_epic:
       name: QA Master Test Plan # the MTP — parent of every Test Plan (FTP/STP/ATP); description mirrors
       # .context/master-test-plan.md + points to the official QA repo; cross-linked to the 3 sibling QA epics
-      key: null # discovered/created at runtime, then cached here (e.g. PROJ-100)
+      key: BK-514 # discovered via JQL during BK-260 sprint-testing Stage 1 (2026-08-27)
     test_repository_epic:
       name: QA Test Repository # convention name; holds every Test (TC) issue
-      key: null # discovered/created at runtime, then cached here (e.g. PROJ-456)
+      key: BK-70 # discovered via JQL during BK-260 sprint-testing Stage 1 (2026-08-27)
     test_artifacts_epic:
       name: QA Test Artifacts # holds every Test Execution (FTR/STR/ATR), Precondition, Test Set
-      key: null # discovered/created at runtime, then cached here (e.g. PROJ-789)
+      key: BK-515 # discovered via JQL during BK-260 sprint-testing Stage 1 (2026-08-27)
     defect_epic:
       name: QA Defect Management # convention name; the `QA ` prefix marks a process epic, not product
-      key: null # discovered/created at runtime, then cached here (e.g. PROJ-123)
+      key: BK-183 # discovered via JQL during BK-260 sprint-testing Stage 1 (2026-08-27)
 
 # Git workflow for THIS project — the SOURCE OF TRUTH read by the git-flow-master skill
 # before any git/gh operation. Ships `null` (template): on the first git intent git-flow-master
