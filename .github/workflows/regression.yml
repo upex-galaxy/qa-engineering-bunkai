@@ -50,6 +50,11 @@ env:
   STAGING_USER_EMAIL: ${{ secrets.STAGING_USER_EMAIL }}
   STAGING_USER_PASSWORD: ${{ secrets.STAGING_USER_PASSWORD }}
   # TMS Configuration (for Xray sync)
+  # TMS modality. Only 'xray' has Test Executions to import into — a jira-native
+  # project writes a per-Test status field instead, so the XrayImport job below
+  # is skipped outright for it. A repo VARIABLE, not a secret: it is plain
+  # configuration, and a job-level `if:` can read `vars` but never `secrets`.
+  TMS_PROVIDER: ${{ vars.TMS_PROVIDER || 'xray' }}
   AUTO_SYNC: ${{ secrets.AUTO_SYNC || 'false' }}
   XRAY_CLIENT_ID: ${{ secrets.XRAY_CLIENT_ID }}
   XRAY_CLIENT_SECRET: ${{ secrets.XRAY_CLIENT_SECRET }}
@@ -343,13 +348,21 @@ jobs:
   # with no TMS at all, so every gate below exits 0 with a GitHub annotation
   # instead of failing, and the import step is continue-on-error so an Xray
   # outage never turns a green suite red. A repo without Xray sees a skip note.
+  #
+  # The modality gate is different in kind: it is not "Xray is misconfigured"
+  # but "this project has no Xray", so it skips the whole job SILENTLY. A
+  # jira-native repo must see no Xray annotation at all — an annotation about a
+  # platform it does not use is noise that teaches the wrong model.
   # ============================================
   XrayImport:
     name: Import Results to Xray
     needs: [IntegrationTests, E2ETests]
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    if: always()
+    # `always()` so results still reach the TMS after a failing suite. The
+    # `vars` expression is repeated rather than read from `env.TMS_PROVIDER`:
+    # a job-level `if:` cannot read the `env` context.
+    if: always() && (vars.TMS_PROVIDER || 'xray') == 'xray'
 
     steps:
       - name: Checkout Repo
