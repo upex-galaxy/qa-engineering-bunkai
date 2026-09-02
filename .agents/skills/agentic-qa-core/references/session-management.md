@@ -140,12 +140,30 @@ Subagents read the plan by H2 header, so the order and exact spelling are requir
 1. `## Goal` — one sentence. What outcome the skill must produce.
 2. `## Inputs` — files, URLs, Jira refs, env vars the plan was built from.
 3. `## Approach` — narrative explanation of why this approach was chosen. Names the composable skills loaded (e.g. `/playwright-cli`, `/acli`).
-4. `## Phase breakdown` — table with columns: `Phase | Pattern | Dispatch payload pointer | Exit condition`.
+4. `## Phase breakdown` — table. Four columns are REQUIRED and keep this spelling and order: `Phase | Pattern | Dispatch payload pointer | Exit condition`. See "Queue columns" below when the table is also a work queue.
 5. `## Risks & open questions` — bulleted list. Each item names the risk and the mitigation.
 6. `## Verification checklist` — bulleted list of observable signals that mean "done" before Archive.
 7. `## Cross-references` — sibling artifacts this session reads or writes (e.g. `.context/PBI/epics/EPIC-UPEX-100-<slug>/stories/STORY-UPEX-123-<slug>/implementation-plan.md`, `DESIGN.md`).
 
 A plan with all seven headers (even if a section is empty) is valid. Missing a header fails the lint check.
+
+### Queue columns (optional, for a `## Phase breakdown` that is also a work queue)
+
+Some skills run a LIST of units of work rather than a fixed pipeline — one nested sub-scope per issue, per module, per environment. For those, the Phase breakdown table doubles as the queue AND the assignment board, and four columns cannot carry that. Rather than let each skill invent its own spelling, these four are standard:
+
+| Column | Meaning |
+|---|---|
+| `#` | Execution order inside the current group. The orchestrator picks the lowest-numbered unit still queued. |
+| `Wave` | Group label, when the queue is executed in ordered batches (wave 1 before wave 2). Omit when there is only one group. |
+| `Priority` | The unit's own priority, carried from its source of record (a Jira field, a risk score). Never re-derived. |
+| `Owner` | Who took this unit. `unassigned` until someone does. This is what makes the table shareable in a team. |
+
+Rules that keep the extension from becoming drift:
+
+- **Append, never reorder.** The four required columns keep their spelling and relative order; queue columns sit around them. A subagent reading by column NAME must not break.
+- **Take all four or take none of the ones you need.** Adding `Owner` without `#` produces a board nobody can execute in order.
+- **`Exit condition` carries status.** Do not add a `Status` column: the required column already holds it (queued → the terminal state the unit reached). A second status column is a second source of truth.
+- Any column beyond these six needs a one-line justification in the table's preamble, so the next reader can tell a decision from an accident.
 
 ### Changelog (optional, append-only)
 
@@ -230,7 +248,7 @@ The shape of `<scope>` is decided per skill, not per invocation. Each retrofitte
 
 | Skill | Scope shape | Identifier source |
 |---|---|---|
-| `sprint-testing` | `<JIRA-KEY>` (single-ticket); `sprint-<N>/` containing nested `<JIRA-KEY>/` per ticket (batch-sprint) | Jira ticket or sprint number |
+| `sprint-testing` | `<JIRA-KEY>` (single-issue); `sprint-<N>` (sprint-wide — a scope in its own right, holding one nested `<JIRA-KEY>/` sub-scope per issue) | Jira issue key or sprint number |
 | `test-automation` | `<JIRA-KEY>` (ticket-driven, regression-driven); `<module-slug>` (module-driven) | Jira ticket or module name from scope-picker |
 | `test-documentation` | `<JIRA-KEY>` (ticket / bug); `<module-slug>` (module); `<YYYY-MM-DD>-adhoc` (ad-hoc) | Scope-picker output |
 | `framework-development` | `<change-name>` (kebab-case) | User-provided at session start |
@@ -239,6 +257,30 @@ The shape of `<scope>` is decided per skill, not per invocation. Each retrofitte
 | `project-discovery` | (none — project scope) | — |
 
 A skill MUST validate its `<scope>` matches its declared shape before writing the directory. Mismatch is a lint failure.
+
+### Nested scopes
+
+A scope MAY itself contain sub-scopes when the skill genuinely runs at two altitudes. Today only `sprint-testing` does: `sprint-<N>` is a scope AND the parent of one `<JIRA-KEY>/` sub-scope per issue in the sprint.
+
+```
+.session/sprint-testing/
+├── <JIRA-KEY>/                 # single-issue mode
+│   ├── plan.md
+│   └── progress.md
+└── sprint-<N>/                 # sprint-wide mode
+    ├── plan.md                 # the sprint's queue, waves and assignment
+    ├── progress.md             # append-only, one entry per issue close
+    └── <JIRA-KEY>/             # one sub-scope per issue, unchanged
+        ├── plan.md
+        └── progress.md
+```
+
+Rules for a nested pair:
+
+- **Both altitudes use the SAME schemas** — §6 for `plan.md`, §7 for `progress.md`. There is no second file format, and no bespoke tracker file beside them. What differs is only what a "phase" means: at issue altitude a phase is a stage of the skill, at sprint altitude a phase is one issue in the queue.
+- **Phase 0 runs at both altitudes** — once on the parent scope when the sprint run is entered, then once per sub-scope as the loop enters that issue. Per-issue resume stays fine-grained; the parent resume answers "where was this sprint left?".
+- **Archive is bottom-up** (§8) — a sub-scope archives when its own final phase completes; the parent archives only when the queue is exhausted. Moving the parent moves any sub-scope still inside it, so never archive the parent while an issue is mid-flight.
+- **The scope-shape regex in §14 check 3 applies to the immediate child of `.session/<skill-slug>/` only.** A nested sub-scope is validated by the skill, not by the lint.
 
 ## 10. Orchestration enforcement banner
 

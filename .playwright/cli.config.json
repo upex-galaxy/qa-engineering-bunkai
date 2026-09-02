@@ -13,7 +13,7 @@
       }
     }
   },
-  "outputDir": ".playwright/output",
+  "outputDir": ".context/PBI/epics/EPIC-BK-224-billing-plans/stories/STORY-BK-230-billing-upgrade-to-a-paid-plan/evidence",
   "outputMode": "file",
   "console": {
     "level": "warning"
