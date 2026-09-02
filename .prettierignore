@@ -109,3 +109,6 @@ docs/mcp/
 # ----- 2026-08-21 (sync) -----
 .scratch/
 .session/
+
+# ----- 2026-09-02 (sync) -----
+.backups*/

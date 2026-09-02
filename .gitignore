@@ -208,3 +208,7 @@ dbhub.local.toml
 # `bunx skills add` in a throwaway repo — the dotted name above never appears.
 !skills-lock.json
 !**/skills-lock.json
+
+# ===== Synced from boilerplate v7.0 =====
+# ----- 2026-09-02 (sync) -----
+.backups*/
