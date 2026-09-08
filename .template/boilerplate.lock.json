@@ -5,12 +5,12 @@
   "perComponentCommit": {
     "skills": "06947fa1e0e334db64660502d83620ec11b6210a",
     "commands": "0c1b4e11856bdd2a288d657f5863a9cbf816cc47",
-    "scripts": "06947fa1e0e334db64660502d83620ec11b6210a",
-    "docs": "06947fa1e0e334db64660502d83620ec11b6210a",
+    "scripts": "c9b7577f38677b4b339e545aa73c0525ceef7b4c",
+    "docs": "c9b7577f38677b4b339e545aa73c0525ceef7b4c",
     "cli": "97c4f9bc05e0086fff6c14c466b5a4f4728ba7b1",
     "vscode": "97c4f9bc05e0086fff6c14c466b5a4f4728ba7b1",
     "husky": "b71a4a624498a6bb99201f72b6ae6342b4542e8b",
-    "agents-docs": "0c1b4e11856bdd2a288d657f5863a9cbf816cc47",
+    "agents-docs": "c9b7577f38677b4b339e545aa73c0525ceef7b4c",
     "claude-config": "0c1b4e11856bdd2a288d657f5863a9cbf816cc47",
     "tooling": "97c4f9bc05e0086fff6c14c466b5a4f4728ba7b1",
     "env-template": "06947fa1e0e334db64660502d83620ec11b6210a",
@@ -21,7 +21,7 @@
   "syncedComponents": [],
   "ignoreFileSync": {
     ".gitignore": {
-      "lastSyncedSha": "a293ad9759098669d09ad4106f2e96acb2c11187",
+      "lastSyncedSha": "82195b81ce755d511e8da13bbd672adae0959232",
       "appendedLines": [
         ".context/reports/*",
         "!.context/reports/README.md",
@@ -37,7 +37,8 @@
         ".claude/skills/playwright-cli/",
         ".claude/skills/playwright-best-practices/",
         ".claude/skills/resend-cli/",
-        ".backups*/"
+        ".backups*/",
+        ".template/last-apply.json"
       ]
     },
     ".prettierignore": {
@@ -78,7 +79,7 @@
       }
     }
   },
-  "cliVersion": "7.0",
-  "lastSyncedAt": "2026-09-02T16:39:14.377Z",
+  "cliVersion": "8.4",
+  "lastSyncedAt": "2026-09-08T14:05:44.062Z",
   "variableSystemVersion": 1
 }

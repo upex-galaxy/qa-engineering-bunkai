@@ -212,3 +212,6 @@ dbhub.local.toml
 # ===== Synced from boilerplate v7.0 =====
 # ----- 2026-09-02 (sync) -----
 .backups*/
+
+# ----- 2026-09-08 (sync) -----
+.template/last-apply.json
