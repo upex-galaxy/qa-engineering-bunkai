@@ -13,7 +13,6 @@
  */
 
 import type { ApiState } from '@data/types';
-import type { TokenResponse } from '@schemas/auth.types';
 
 import { writeFileSync } from 'node:fs';
 import { test as setup } from '@TestFixture';
@@ -22,6 +21,34 @@ import { config } from '@variables';
 
 const storageStateFile = config.auth.storageStatePath;
 const apiStateFile = config.auth.apiStatePath;
+
+/**
+ * Real `POST /api/v1/auth/signin` response shape (BK-256 fix, 2026-09-11):
+ * the previous `TokenResponse` type (still the pre-sync
+ * `api/schemas/auth.types.ts` stub) modeled a generic top-level Bearer-JWT
+ * shape this app never had. The real response carries THREE distinct
+ * things (`components["schemas"]["SigninResponse"]` in
+ * api/openapi-types.ts): `session` (Supabase cookie-session tokens — the
+ * browser already has these via Set-Cookie, captured below by
+ * `storageState()`) and `pat` (a freshly-minted Bearer Personal Access
+ * Token, "so the caller can immediately authenticate subsequent requests
+ * without a browser" per the endpoint doc). Standalone API-only requests
+ * (no page/cookies — the `{ api }` fixture used outside a browser context)
+ * need the PAT, not the session token — a raw Supabase session token is
+ * not accepted as a Bearer credential by this API.
+ */
+interface BunkaiSigninResponse {
+  session: {
+    access_token: string
+    refresh_token: string
+    expires_at?: number
+    token_type?: string
+  }
+  pat: {
+    token: string
+    expires_at: string | null
+  }
+}
 
 /**
  * UI Authentication Setup
@@ -62,7 +89,7 @@ setup('UI Setup: authenticate via UI', async ({ ui, page }) => {
   // Capture JWT token from intercepted response
   console.log('[UI Setup] Intercepting token from login response...');
   const response = await tokenPromise;
-  const tokenData = (await response.json()) as TokenResponse;
+  const tokenData = (await response.json()) as BunkaiSigninResponse;
 
   // Attach to Allure for debugging
   await attachRequestResponseToAllure({
@@ -72,23 +99,25 @@ setup('UI Setup: authenticate via UI', async ({ ui, page }) => {
     requestBody: { email: credentials.email, password: '***' },
   });
 
-  // Verify token was obtained
-  if (!tokenData?.access_token) {
-    throw new Error('Token response missing access_token');
+  // Verify a token was obtained
+  if (!tokenData?.pat?.token) {
+    throw new Error('Signin response missing pat.token');
   }
 
   console.log('[UI Setup] Token intercepted successfully');
 
-  // Save storage state (cookies + localStorage) for UI tests
+  // Save storage state (cookies + localStorage) for UI tests — the browser
+  // already holds the Supabase session cookie via Set-Cookie, so
+  // tokenData.session is not needed here.
   await page.context().storageState({ path: storageStateFile });
   console.log(`[UI Setup] Storage state saved to ${storageStateFile}`);
 
-  // Save the token for API calls within E2E tests
+  // Save the Bearer PAT for standalone (no-page) API calls within E2E tests
   const apiState: ApiState = {
-    token: tokenData.access_token,
-    tokenType: tokenData.token_type,
-    expiresIn: tokenData.expires_in,
-    refreshToken: tokenData.refresh_token ?? null,
+    token: tokenData.pat.token,
+    tokenType: 'bearer',
+    expiresIn: 0,
+    refreshToken: null,
     source: 'ui-login',
     createdAt: new Date().toISOString(),
   };

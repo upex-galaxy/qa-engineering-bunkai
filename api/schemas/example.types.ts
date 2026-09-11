@@ -1,3 +1,12 @@
+// Reference-only template: fictional schema/path names below never existed
+// in any real spec, and now that `bun run api:sync` (BK-256) has replaced
+// the stub `api/openapi-types.ts` with the real generated types,
+// `paths['/api/example']` etc. correctly stop resolving. Left deliberately
+// broken-but-silenced rather than "fixed" with real Bunkai schema names,
+// since fixing it would misrepresent this as functional code — see the
+// file's own header below.
+// eslint-disable-next-line ts/ban-ts-comment
+// @ts-nocheck
 /**
  * KATA Framework - Type Facade: Example Domain
  *

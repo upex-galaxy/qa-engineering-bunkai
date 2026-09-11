@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "generatedAt": "2026-08-21T22:01:55.294Z",
+  "generatedAt": "2026-09-11T22:23:20.084Z",
   "components": {
     "api": [
       {
@@ -41,6 +41,18 @@
             "line": 113
           }
         ]
+      },
+      {
+        "name": "HomeApi",
+        "file": "HomeApi.ts",
+        "relativePath": "tests\\components\\api\\HomeApi.ts",
+        "atcs": []
+      },
+      {
+        "name": "RunsApi",
+        "file": "RunsApi.ts",
+        "relativePath": "tests\\components\\api\\RunsApi.ts",
+        "atcs": []
       }
     ],
     "ui": [
@@ -62,6 +74,48 @@
         ]
       },
       {
+        "name": "HomePage",
+        "file": "HomePage.ts",
+        "relativePath": "tests\\components\\ui\\HomePage.ts",
+        "atcs": [
+          {
+            "id": "BK-849",
+            "method": "viewActiveRunsAcrossProjects",
+            "line": 128
+          },
+          {
+            "id": "BK-850",
+            "method": "viewActiveRunsEmptyState",
+            "line": 143
+          },
+          {
+            "id": "BK-851",
+            "method": "resumeMostRecentActiveRunSuccessfully",
+            "line": 154
+          },
+          {
+            "id": "BK-852",
+            "method": "verifyRunExcludedFromActiveTable",
+            "line": 166
+          },
+          {
+            "id": "BK-853",
+            "method": "verifyRunShowsBlockedChip",
+            "line": 176
+          },
+          {
+            "id": "BK-854",
+            "method": "verifyRunProgressRendersValue",
+            "line": 187
+          },
+          {
+            "id": "BK-855",
+            "method": "resumeNavigatesToTargetRun",
+            "line": 199
+          }
+        ]
+      },
+      {
         "name": "LoginPage",
         "file": "LoginPage.ts",
         "relativePath": "tests\\components\\ui\\LoginPage.ts",
@@ -69,12 +123,12 @@
           {
             "id": "PROJ-101",
             "method": "loginSuccessfully",
-            "line": 84
+            "line": 95
           },
           {
             "id": "PROJ-102",
             "method": "loginWithInvalidCredentials",
-            "line": 101
+            "line": 112
           }
         ]
       }
@@ -93,10 +147,10 @@
     }
   ],
   "summary": {
-    "totalComponents": 4,
-    "totalATCs": 9,
-    "apiComponents": 2,
-    "uiComponents": 2,
+    "totalComponents": 7,
+    "totalATCs": 16,
+    "apiComponents": 4,
+    "uiComponents": 3,
     "stepsModules": 1
   }
 }
