@@ -44,6 +44,23 @@ export interface TestBooking {
 }
 
 // ============================================
+// BK-256 — Run lifecycle test data (RunsApi preconditions)
+// ============================================
+
+/**
+ * Intent to start a Run, as constructed by test preconditions from
+ * discovered Test/Environment ids (see automation-plan.md HD-T01 §4).
+ * Field names mirror the real `RunCreateBody` API contract
+ * (api/schemas/runs.types.ts) — `executor_mode`, not `actor`, since cookie
+ * sessions always run as `human` regardless (D3).
+ */
+export interface RunCreatePayload {
+  test_id: string
+  environment_id: string
+  executor_mode?: 'human' | 'agent' | 'ci'
+}
+
+// ============================================
 // Auth/Fixture State Types
 // ============================================
 

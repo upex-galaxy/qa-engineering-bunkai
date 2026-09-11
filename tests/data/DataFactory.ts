@@ -75,6 +75,27 @@ export class DataFactory {
   }
 
   // ============================================
+  // BK-256 — Run lifecycle test data
+  // ============================================
+
+  /**
+   * Genera un Idempotency-Key válido para POST /api/v1/runs.
+   * Contrato: 8-128 chars, [a-zA-Z0-9_-]. 32 chars alfanuméricos sobra margen.
+   */
+  static generateIdempotencyKey(): string {
+    return faker.string.alphanumeric(32);
+  }
+
+  /**
+   * Genera un motivo de abort válido para POST /api/v1/runs/{id}/abort.
+   * Contrato: 3-500 chars tras trim — una oración de faker.lorem siempre cae
+   * dentro de ese rango.
+   */
+  static generateAbortReason(): string {
+    return faker.lorem.sentence();
+  }
+
+  // ============================================
   // PROJECT-SPECIFIC (example structure)
   // ============================================
 
