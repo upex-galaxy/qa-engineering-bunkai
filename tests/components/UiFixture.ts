@@ -17,6 +17,7 @@
 import type { TestContextOptions } from '@TestContext';
 
 import { ExamplePage } from '@ui/ExamplePage';
+import { HomePage } from '@ui/HomePage';
 import { LoginPage } from '@ui/LoginPage';
 import { UiBase } from '@ui/UiBase';
 
@@ -31,11 +32,15 @@ export class UiFixture extends UiBase {
   /** Example component - reference only */
   readonly example: ExamplePage;
 
+  /** Home page component - BK-256 active-runs widget */
+  readonly home: HomePage;
+
   constructor(options: TestContextOptions) {
     super(options);
 
     // All components receive the same options (same page context)
     this.login = new LoginPage(options);
     this.example = new ExamplePage(options);
+    this.home = new HomePage(options);
   }
 }
