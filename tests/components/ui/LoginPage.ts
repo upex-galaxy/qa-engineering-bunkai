@@ -49,11 +49,22 @@ export class LoginPage extends UiBase {
   /**
    * Fill login form and submit
    * Helper that combines fill + submit actions
+   *
+   * BK-256 FIX (2026-09-11): the real Bunkai login is an email-first,
+   * 2-step flow (app/(auth)/login/email-first-form.tsx) — fill email,
+   * click Continue, THEN the password field renders and Sign in submits.
+   * There is no single-step form / no `*-input`/`*-submit-button` testids;
+   * this component's locators never matched the live app (still the
+   * generic scaffold). Corrected to the real testids/steps so ui-auth.setup.ts
+   * — and every e2e test depending on it — can authenticate at all.
    */
   private async fillAndSubmitLoginForm(credentials: LoginCredentials): Promise<void> {
-    await this.page.locator('[data-testid="login-email-input"]').fill(credentials.email);
-    await this.page.locator('[data-testid="login-password-input"]').fill(credentials.password);
-    await this.page.locator('[data-testid="login-submit-button"]').click();
+    await this.page.locator('[data-testid="login-email"]').fill(credentials.email);
+    await this.page.locator('[data-testid="login-continue"]').click();
+    const passwordInput = this.page.locator('[data-testid="login-password"]');
+    await passwordInput.waitFor();
+    await passwordInput.fill(credentials.password);
+    await this.page.locator('[data-testid="login-signin"]').click();
   }
 
   // ============================================
