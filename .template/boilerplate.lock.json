@@ -7,7 +7,7 @@
     "commands": "0c1b4e11856bdd2a288d657f5863a9cbf816cc47",
     "scripts": "c9b7577f38677b4b339e545aa73c0525ceef7b4c",
     "docs": "c9b7577f38677b4b339e545aa73c0525ceef7b4c",
-    "cli": "97c4f9bc05e0086fff6c14c466b5a4f4728ba7b1",
+    "cli": "35f296d05ac55452b0db924f34ec37643393d2c9",
     "vscode": "97c4f9bc05e0086fff6c14c466b5a4f4728ba7b1",
     "husky": "b71a4a624498a6bb99201f72b6ae6342b4542e8b",
     "agents-docs": "c9b7577f38677b4b339e545aa73c0525ceef7b4c",
@@ -53,7 +53,7 @@
   "packageJsonSync": {
     "package.json": {
       "scripts": {
-        "lastSyncedSha": "f043848877ffcc7e5865cedd022766333074efcc",
+        "lastSyncedSha": "477cbad473d1d9f96311a8edb9d9d8463b621c50",
         "appliedKeys": [
           "context:hydrate",
           "git:policy",
@@ -62,24 +62,25 @@
           "tests:map",
           "agents:compat",
           "agents:compat:check",
-          "codex"
+          "codex",
+          "skills:evals"
         ]
       },
       "devDependencies": {
-        "lastSyncedSha": "f043848877ffcc7e5865cedd022766333074efcc",
+        "lastSyncedSha": "477cbad473d1d9f96311a8edb9d9d8463b621c50",
         "appliedKeys": []
       },
       "dependencies": {
-        "lastSyncedSha": "f043848877ffcc7e5865cedd022766333074efcc",
+        "lastSyncedSha": "477cbad473d1d9f96311a8edb9d9d8463b621c50",
         "appliedKeys": []
       },
       "lint-staged": {
-        "lastSyncedSha": "f043848877ffcc7e5865cedd022766333074efcc",
+        "lastSyncedSha": "477cbad473d1d9f96311a8edb9d9d8463b621c50",
         "appliedKeys": []
       }
     }
   },
   "cliVersion": "8.4",
-  "lastSyncedAt": "2026-09-08T14:05:44.062Z",
+  "lastSyncedAt": "2026-09-15T22:30:23.651Z",
   "variableSystemVersion": 1
 }
