@@ -61,6 +61,21 @@ export interface RunCreatePayload {
 }
 
 // ============================================
+// BK-260 — Recent-activity precondition test data
+// ============================================
+
+/**
+ * PATCH /api/v1/modules/{id} rename intent (ModulesApi.renameModule) —
+ * produces the `module.renamed` activity event BK-624's module row / BK-631's
+ * Workspace-A seed event need. Test-only concept, not the full
+ * `ModuleUpdateBody` API contract (which also allows description/move) —
+ * see api/schemas/modules.types.ts for that.
+ */
+export interface ModuleRenamePayload {
+  name: string
+}
+
+// ============================================
 // Auth/Fixture State Types
 // ============================================
 

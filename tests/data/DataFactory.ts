@@ -96,6 +96,38 @@ export class DataFactory {
   }
 
   // ============================================
+  // BK-260 — Recent-activity precondition test data
+  // ============================================
+
+  /**
+   * Genera un nombre de módulo válido (contrato real: 2-80 chars, al menos
+   * un alfanumérico) para las precondiciones Generate de BK-624/BK-631
+   * (create + rename → evento `module.renamed`).
+   */
+  static generateModuleName(): string {
+    return `test.${faker.commerce.productName()}`;
+  }
+
+  /**
+   * Genera un slug de workspace único y válido (contrato real:
+   * `^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$`, 3-40 chars). El prefijo 'bk260-'
+   * evita por construcción los 16 slugs reservados que el API rechaza
+   * (admin, api, app, auth, docs, invites, login, logout, onboarding,
+   * projects, public, qa, settings, static, workspaces, _next).
+   */
+  static generateWorkspaceSlug(): string {
+    return `bk260-${Date.now()}-${faker.string.alphanumeric(4).toLowerCase()}`;
+  }
+
+  /**
+   * Genera un título de bug válido para POST /api/v1/bugs (standalone) —
+   * satisface el contrato BUG_TITLE_MIN/MAX del producto (lib/bugs/validation.ts).
+   */
+  static generateBugTitle(): string {
+    return `BK-260 ${faker.lorem.sentence()}`;
+  }
+
+  // ============================================
   // PROJECT-SPECIFIC (example structure)
   // ============================================
 
