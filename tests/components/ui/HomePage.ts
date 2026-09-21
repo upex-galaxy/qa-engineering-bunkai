@@ -37,6 +37,20 @@
  * so `.first()` resolves the strict-mode ambiguity without masking a real
  * duplicate-data bug (a genuinely duplicated ROW with different content
  * would still fail downstream assertions).
+ *
+ * BK-260 adds the "Recent activity" widget's own locators/ATCs to this same
+ * class (automation-plan.md BK-260 §Component Strategy). Same `.first()`
+ * rationale applies — both widgets stream inside their own Suspense
+ * boundaries on the same page.
+ * - Section: [data-testid="home-recent-activity"]
+ * - List: [data-testid="home-recent-activity-list"]
+ * - Item (dynamic, keyed by the activity_log event's OWN id — NOT the
+ *   entity id; see HomeApi.findActivityEventId's doc comment):
+ *   [data-testid="home-recent-activity-item-{eventId}"]
+ * - Empty state: [data-testid="home-recent-activity-empty"]
+ * - Header "View all" link: [data-testid="home-recent-activity-view-all"]
+ * - Empty-state "Browse the full activity feed" link:
+ *   [data-testid="home-recent-activity-empty-view-all"]
  */
 
 import type { TestContextOptions } from '@TestContext';
@@ -60,6 +74,14 @@ export interface ResumeTargetArgs {
   expectedRunId: string
 }
 
+export interface ActivityItemAssertionArgs {
+  eventId: string
+  expectedActionLabel: string
+  expectedItemLabel: string
+  expectedGlyphClass: 'text-signal-fail' | 'text-signal-running' | 'text-accent'
+  expectedChip: 'Passed' | 'Failed' | 'none'
+}
+
 // ============================================
 // Home Page Component
 // ============================================
@@ -71,6 +93,13 @@ export class HomePage extends UiBase {
   private readonly activeRunsRow = (runId: string) => this.page.getByTestId(`home-active-runs-row-${runId}`).first();
   private readonly activeRunsEmpty = () => this.page.getByTestId('home-active-runs-empty').first();
   private readonly activeRunsResumeButton = () => this.page.getByTestId('home-active-runs-resume').first();
+
+  // BK-260 — Recent-activity widget locators (used in 2+ ATCs).
+  private readonly recentActivityList = () => this.page.getByTestId('home-recent-activity-list').first();
+  private readonly recentActivityItem = (eventId: string) => this.page.getByTestId(`home-recent-activity-item-${eventId}`).first();
+  private readonly recentActivityEmpty = () => this.page.getByTestId('home-recent-activity-empty').first();
+  private readonly recentActivityViewAllHeader = () => this.page.getByTestId('home-recent-activity-view-all').first();
+  private readonly recentActivityEmptyViewAll = () => this.page.getByTestId('home-recent-activity-empty-view-all').first();
 
   constructor(options: TestContextOptions) {
     super(options);
@@ -99,8 +128,9 @@ export class HomePage extends UiBase {
   }
 
   /**
-   * Navigate to Home and wait for the active-runs widget to resolve.
-   * Call useWorkspace() first when the test needs a specific workspace.
+   * Navigate to Home and wait for the active-runs AND recent-activity
+   * widgets to both resolve. Call useWorkspace() first when the test needs
+   * a specific workspace.
    *
    * Waits for the TABLE or the EMPTY state specifically, not the wrapping
    * `home-active-runs` section: that testid is on `ActiveRunsShell`, shared
@@ -110,10 +140,20 @@ export class HomePage extends UiBase {
    * content mounts, so waiting on the section alone intermittently resolves
    * to 2 elements (strict-mode violation). Table/empty are each unique to
    * one terminal, resolved state.
+   *
+   * BK-260 extends this wait (Promise.all, not replace) to also resolve the
+   * recent-activity widget's own list-or-empty terminal state — additive:
+   * BK-849..855's own wait condition still resolves exactly when it did
+   * before, it now just ALSO waits for a sibling widget those ATCs never
+   * assert on, at zero cost since both stream in the same RSC pass
+   * (automation-plan.md BK-260 §2 Component Strategy).
    */
   async goto(): Promise<void> {
     await this.page.goto(this.buildUrl('/home'));
-    await this.activeRunsTable().or(this.activeRunsEmpty()).first().waitFor();
+    await Promise.all([
+      this.activeRunsTable().or(this.activeRunsEmpty()).first().waitFor(),
+      this.recentActivityList().or(this.recentActivityEmpty()).first().waitFor(),
+    ]);
   }
 
   // ============================================
@@ -204,5 +244,90 @@ export class HomePage extends UiBase {
     await expect(this.page).toHaveURL(
       new RegExp(`/projects/${args.expectedProjectSlug}/runs/${args.expectedRunId}$`),
     );
+  }
+
+  /**
+   * ATC: Navigate to Home and verify one specific activity item's row
+   * renders its full content contract — actor, action label, item label,
+   * relative time, glyph, and verdict chip (BK-624 / AC1, parameterized
+   * across entity types — see atc/BK-624.md §6 for the EP-merge + BVA-
+   * reduction derivation).
+   */
+  @atc('BK-624')
+  async verifyActivityItemRenders(args: ActivityItemAssertionArgs): Promise<void> {
+    await this.goto();
+    const row = this.recentActivityItem(args.eventId);
+    await expect(row).toBeVisible();
+    await expect(row).toContainText(this.config.testUser.email);
+    await expect(row).toContainText(args.expectedActionLabel);
+    await expect(row).toContainText(args.expectedItemLabel);
+    await expect(row.locator('time')).toHaveText('just now');
+    await expect(row.locator('span[aria-hidden="true"] svg')).toHaveClass(new RegExp(args.expectedGlyphClass));
+    if (args.expectedChip === 'none') {
+      await expect(row.locator('[data-status]')).toHaveCount(0);
+    }
+    else {
+      // .first() — RunVerdictChip renders `data-status` on BOTH the outer
+      // chip span AND its inner `.dot` span (same two-element pattern
+      // BK-853's activeRunsRow chip locator already guards against above).
+      const status = args.expectedChip === 'Passed' ? 'pass' : 'fail';
+      await expect(row.locator('[data-status]').first()).toHaveAttribute('data-status', status);
+      await expect(row.locator('[data-status]').first()).toContainText(args.expectedChip);
+    }
+  }
+
+  /**
+   * ATC: Click the recent-activity card's header "View all" link and
+   * verify navigation to the full activity view (BK-625 / AC2, header
+   * variant — renders unconditionally in every feed state).
+   */
+  @atc('BK-625')
+  async navigateToActivityFromHeaderLink(): Promise<void> {
+    await this.goto();
+    await this.recentActivityViewAllHeader().click();
+    await this.page.waitForURL(/\/activity$/);
+    await expect(this.page).toHaveURL(/\/activity$/);
+  }
+
+  /**
+   * ATC: Given the feed is showing its empty state, click the empty
+   * state's own "Browse the full activity feed" link and verify navigation
+   * to the full activity view (BK-626 / AC2, empty-state variant — distinct
+   * DOM location from BK-625).
+   */
+  @atc('BK-626')
+  async navigateToActivityFromEmptyState(): Promise<void> {
+    await this.goto();
+    await this.recentActivityEmptyViewAll().click();
+    await this.page.waitForURL(/\/activity$/);
+    await expect(this.page).toHaveURL(/\/activity$/);
+  }
+
+  /**
+   * ATC: Navigate to Home and verify the recent-activity empty state
+   * renders with its scoped copy, offering the browse link, while the item
+   * list does not render (BK-627 / AC3).
+   */
+  @atc('BK-627')
+  async viewRecentActivityEmptyState(): Promise<void> {
+    await this.goto();
+    await expect(this.recentActivityEmpty()).toBeVisible();
+    await expect(this.recentActivityEmpty()).toContainText('No tracked events in the last 24 hours');
+    await expect(this.recentActivityEmpty()).toContainText('new modules, ATCs and tests, finished runs and defect');
+    await expect(this.recentActivityEmptyViewAll()).toBeVisible();
+    await expect(this.recentActivityList()).toHaveCount(0);
+  }
+
+  /**
+   * ATC: Given the active workspace was switched away from the one that
+   * produced a known event, navigate to Home and verify that event's row
+   * is absent from the now-active workspace's condensed feed (BK-631 /
+   * Risk-beyond-AC — RLS: activity_log_select_workspace_member never leaks
+   * across workspaces — see atc/BK-631.md §"Adaptation rationale").
+   */
+  @atc('BK-631')
+  async verifyActivityIsolatedByWorkspace(foreignEventId: string): Promise<void> {
+    await this.goto();
+    await expect(this.recentActivityItem(foreignEventId)).toHaveCount(0);
   }
 }

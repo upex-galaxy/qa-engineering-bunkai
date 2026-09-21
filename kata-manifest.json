@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "generatedAt": "2026-09-11T22:23:20.084Z",
+  "generatedAt": "2026-09-21T19:54:40.048Z",
   "components": {
     "api": [
       {
@@ -19,6 +19,12 @@
             "line": 112
           }
         ]
+      },
+      {
+        "name": "BugsApi",
+        "file": "BugsApi.ts",
+        "relativePath": "tests\\components\\api\\BugsApi.ts",
+        "atcs": []
       },
       {
         "name": "ExampleApi",
@@ -46,6 +52,12 @@
         "name": "HomeApi",
         "file": "HomeApi.ts",
         "relativePath": "tests\\components\\api\\HomeApi.ts",
+        "atcs": []
+      },
+      {
+        "name": "ModulesApi",
+        "file": "ModulesApi.ts",
+        "relativePath": "tests\\components\\api\\ModulesApi.ts",
         "atcs": []
       },
       {
@@ -79,39 +91,64 @@
         "relativePath": "tests\\components\\ui\\HomePage.ts",
         "atcs": [
           {
+            "id": "BK-624",
+            "method": "verifyActivityItemRenders",
+            "line": 256
+          },
+          {
+            "id": "BK-625",
+            "method": "navigateToActivityFromHeaderLink",
+            "line": 284
+          },
+          {
+            "id": "BK-626",
+            "method": "navigateToActivityFromEmptyState",
+            "line": 298
+          },
+          {
+            "id": "BK-627",
+            "method": "viewRecentActivityEmptyState",
+            "line": 311
+          },
+          {
+            "id": "BK-631",
+            "method": "verifyActivityIsolatedByWorkspace",
+            "line": 328
+          },
+          {
             "id": "BK-849",
             "method": "viewActiveRunsAcrossProjects",
-            "line": 128
+            "line": 168
           },
           {
             "id": "BK-850",
             "method": "viewActiveRunsEmptyState",
-            "line": 143
+            "line": 183
           },
           {
             "id": "BK-851",
             "method": "resumeMostRecentActiveRunSuccessfully",
-            "line": 154
+            "line": 194
           },
           {
             "id": "BK-852",
             "method": "verifyRunExcludedFromActiveTable",
-            "line": 166
+            "line": 206
           },
           {
             "id": "BK-853",
             "method": "verifyRunShowsBlockedChip",
-            "line": 176
+            "line": 216
           },
           {
             "id": "BK-854",
             "method": "verifyRunProgressRendersValue",
-            "line": 187
+            "line": 227
           },
           {
             "id": "BK-855",
             "method": "resumeNavigatesToTargetRun",
-            "line": 199
+            "line": 239
           }
         ]
       },
@@ -147,9 +184,9 @@
     }
   ],
   "summary": {
-    "totalComponents": 7,
-    "totalATCs": 16,
-    "apiComponents": 4,
+    "totalComponents": 9,
+    "totalATCs": 21,
+    "apiComponents": 6,
     "uiComponents": 3,
     "stepsModules": 1
   }

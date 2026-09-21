@@ -18,8 +18,10 @@ import type { TestContextOptions } from '@TestContext';
 
 import { ApiBase } from '@api/ApiBase';
 import { AuthApi } from '@api/AuthApi';
+import { BugsApi } from '@api/BugsApi';
 import { ExampleApi } from '@api/ExampleApi';
 import { HomeApi } from '@api/HomeApi';
+import { ModulesApi } from '@api/ModulesApi';
 import { RunsApi } from '@api/RunsApi';
 
 // ============================================
@@ -30,11 +32,17 @@ export class ApiFixture extends ApiBase {
   /** Auth component - handles login and token management */
   readonly auth: AuthApi;
 
+  /** Bugs component - BK-260 bug-triage precondition helpers */
+  readonly bugs: BugsApi;
+
   /** Example component - reference only */
   readonly example: ExampleApi;
 
-  /** Home component - BK-256 active-runs widget helpers */
+  /** Home component - BK-256 active-runs widget + BK-260 recent-activity widget helpers */
   readonly home: HomeApi;
+
+  /** Modules component - BK-260 module-management precondition helpers */
+  readonly modules: ModulesApi;
 
   /** Runs component - BK-256 run-lifecycle precondition helpers */
   readonly runs: RunsApi;
@@ -44,8 +52,10 @@ export class ApiFixture extends ApiBase {
 
     // All components receive the same options (same request context)
     this.auth = new AuthApi(options);
+    this.bugs = new BugsApi(options);
     this.example = new ExampleApi(options);
     this.home = new HomeApi(options);
+    this.modules = new ModulesApi(options);
     this.runs = new RunsApi(options);
   }
 
@@ -60,8 +70,10 @@ export class ApiFixture extends ApiBase {
   override setAuthToken(token: string) {
     super.setAuthToken(token);
     this.auth.setAuthToken(token);
+    this.bugs.setAuthToken(token);
     this.example.setAuthToken(token);
     this.home.setAuthToken(token);
+    this.modules.setAuthToken(token);
     this.runs.setAuthToken(token);
   }
 
@@ -71,8 +83,10 @@ export class ApiFixture extends ApiBase {
   override clearAuthToken() {
     super.clearAuthToken();
     this.auth.clearAuthToken();
+    this.bugs.clearAuthToken();
     this.example.clearAuthToken();
     this.home.clearAuthToken();
+    this.modules.clearAuthToken();
     this.runs.clearAuthToken();
   }
 }

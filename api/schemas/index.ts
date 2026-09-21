@@ -11,7 +11,9 @@
  */
 
 export type * from './auth.types';
+export type * from './bugs.types';
 export type * from './home.types';
+export type * from './modules.types';
 export type * from './runs.types';
 
 // Add new domain facades here:
