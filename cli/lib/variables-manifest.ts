@@ -459,6 +459,56 @@ export const VAR_MANIFEST: VarSpec[] = [
   // those servers run at harness level (a claude.ai connector, a user-scope
   // MCP, the OpenCode / Codex user config), resolved by capability, and the
   // project has nothing to say about their credentials (ADR-0005, D3).
+  //
+  // PROJECT-KEPT, re-added after the upstream sync removed them: this repo still
+  // declares tavily, postman and resend as project-level servers/CLIs in
+  // `.mcp.json` / `opencode.jsonc` / `.codex/config.toml`, so their keys stay
+  // here. `cli/lib/variables-manifest.ts` is listed in
+  // `.agents/project.yaml` -> `updater.protected_paths` to keep them across syncs.
+  {
+    name: 'TAVILY_API_KEY',
+    destinations: ['local'],
+    secret: true,
+    scope: 'tooling',
+    usedBy: 'tavily MCP (project-level web search, [WEB_SEARCH_TOOL])',
+    required: false,
+    critical: true,
+    obtainHint: 'Tavily dashboard -> API keys.',
+    note: 'Tavily web-search MCP key. Powers the project-level Tavily MCP. Local only.',
+  },
+  {
+    name: 'POSTMAN_API_KEY',
+    destinations: ['local'],
+    secret: true,
+    scope: 'tooling',
+    usedBy: 'postman MCP (project-level collection runner)',
+    required: false,
+    critical: false,
+    obtainHint: 'Postman -> Settings -> API keys (only if your project uses the Postman MCP).',
+    note: 'Postman MCP collection-runner key. Local only.',
+  },
+  {
+    name: 'RESEND_API_KEY',
+    destinations: ['local'],
+    secret: true,
+    scope: 'tooling',
+    usedBy: 'resend CLI (/resend-cli skill) and email-verification test steps',
+    required: false,
+    critical: true,
+    obtainHint: 'Resend dashboard -> API keys.',
+    note: 'Resend email-test verification key; also authenticates the resend CLI. Local only.',
+  },
+  {
+    name: 'API_TOKEN',
+    destinations: ['local'],
+    secret: true,
+    scope: 'project',
+    usedBy: 'legacy manual API calls; superseded by bun run api:login writing .auth/tokens.env',
+    required: false,
+    critical: false,
+    obtainHint: 'legacy/optional - `bun run api:login` now writes the curl token to .auth/tokens.env, not here.',
+    note: 'Legacy. The OpenAPI MCP is schema-read-only and no longer reads this; api:login mints the token into .auth/tokens.env for curl-based API testing. Local only.',
+  },
   {
     name: 'API_BASE_URL',
     destinations: ['local'],
