@@ -1,26 +1,30 @@
 import type { ReportSink } from './lib/updater-types.ts';
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 
 import { dirname, join, resolve } from 'node:path';
 
 import { afterEach, describe, expect, test } from 'bun:test';
 
-import { diagnoseAgentCompatibility } from './doctor.ts';
+import { communitySkillStatus, diagnoseAgentCompatibility } from './doctor.ts';
 import {
   buildCommunitySkillArgs,
   detectAgents,
   discoverRequiredEnvVars,
-  launchCommandsForAgents,
+  ENGRAM_PLUGIN_COMMANDS,
+  engramSetupArgs,
+  mergedHarnesses,
   migrateAgentIds,
+  offerEngramClaudePlugin,
   parseAgentsEnv,
+  PROJECT_LEVEL_SKILLS,
   PROJECT_SKILL_DESTINATION,
+  remoteHeadRef,
   repairRepositoryCompatibility,
 } from './install.ts';
 import { declaredMcpIds } from './lib/agent-compatibility-contracts.ts';
 import {
   claudeSkillsAliasPlan,
-  mergedCommandAliases,
   repairClaudeSkillsAlias,
 } from './lib/agent-compatibility.ts';
 import { COMPONENTS, makeAgentCompatibilityHook } from './update-boilerplate.ts';
@@ -66,12 +70,21 @@ function copyPath(root: string, relativePath: string): void {
   cpSync(join(REPO_ROOT, relativePath), destination, { recursive: true });
 }
 
+/**
+ * A project on one harness deletes the other harnesses' files (ADR-0012), so
+ * the fixture copies what this checkout has, and a test that reads a dropped
+ * harness skips.
+ */
+const HAS_CODEX = existsSync(join(REPO_ROOT, '.codex/hooks.json')) && existsSync(join(REPO_ROOT, '.codex/config.toml'));
+const HAS_CLAUDE = existsSync(join(REPO_ROOT, 'CLAUDE.md'));
+const HAS_ALL_HARNESSES = HAS_CODEX && existsSync(join(REPO_ROOT, 'opencode.jsonc')) && existsSync(join(REPO_ROOT, '.mcp.json'));
+
 function compatibilityFixture(): string {
   const root = temporaryRoot();
   for (const path of [
     'AGENTS.md',
     'CLAUDE.md',
-    '.agents/compatibility/command-aliases.json',
+    '.agents/skills/project-context/SKILL.md',
     '.agents/hooks/personality-reinject.mjs',
     '.claude/settings.json',
     '.opencode/plugins/personality-reinject.js',
@@ -79,20 +92,8 @@ function compatibilityFixture(): string {
     '.codex/config.toml',
     '.mcp.json',
     'opencode.jsonc',
-  ]) { copyPath(root, path); }
-
-  const manifest = JSON.parse(readFileSync(join(root, '.agents/compatibility/command-aliases.json'), 'utf8')) as {
-    aliases: Array<{ skill: string }>
-  };
-  for (const skill of new Set(manifest.aliases.map(alias => alias.skill))) {
-    copyPath(root, `.agents/skills/${skill}/SKILL.md`);
-  }
+  ].filter(path => existsSync(join(REPO_ROOT, path)))) { copyPath(root, path); }
   return root;
-}
-
-/** Aliases the copied manifest declares: the fixture's wrapper count is derived, never a literal. */
-function aliasCount(root: string): number {
-  return mergedCommandAliases(root).aliases.length;
 }
 
 afterEach(() => {
@@ -154,12 +155,61 @@ describe('installer Codex lifecycle', () => {
       ]);
   });
 
-  test('discovers Codex MCP environment contracts and exposes launch guidance', async () => {
-    // The six DBHUB_* arrive through `env_vars` on the dbhub server: Codex
-    // inherits only `core`, so anything dbhub.toml interpolates has to be
-    // forwarded by name. All six are in INSTALLER_DEFERRED_VARS, so the
-    // installer defers them to `bun run doctor` instead of prompting.
-    expect(await discoverRequiredEnvVars(['codex'], REPO_ROOT)).toEqual([
+  test('wires Engram per agent with engram setup, slim protocol on Claude Code only', () => {
+    expect(engramSetupArgs('claude-code')).toEqual(['setup', 'claude-code', '--protocol=slim']);
+    expect(engramSetupArgs('opencode')).toEqual(['setup', 'opencode']);
+    expect(engramSetupArgs('codex')).toEqual(['setup', 'codex']);
+  });
+
+  describe('offerEngramClaudePlugin', () => {
+    function fakeClaude(results: Record<string, boolean> = {}) {
+      const calls: string[][] = [];
+      const run = (args: string[]) => {
+        calls.push(args);
+        return { ok: results[args.join(' ')] ?? true, stderr: 'boom' };
+      };
+      return { calls, run };
+    }
+    const yes = async () => true;
+
+    test('installs the marketplace then the plugin after a yes', async () => {
+      const claude = fakeClaude();
+      const outcome = await offerEngramClaudePlugin({ nonInteractive: false, hasClaude: () => true, confirm: yes, run: claude.run });
+      expect(outcome).toBe('installed');
+      expect(claude.calls).toEqual(ENGRAM_PLUGIN_COMMANDS);
+    });
+
+    test('never runs the binary in non-interactive mode, nor asks', async () => {
+      const claude = fakeClaude();
+      let asked = false;
+      const outcome = await offerEngramClaudePlugin({ nonInteractive: true, hasClaude: () => true, confirm: async () => { asked = true; return true; }, run: claude.run });
+      expect(outcome).toBe('skipped-non-interactive');
+      expect(asked).toBe(false);
+      expect(claude.calls).toEqual([]);
+    });
+
+    test('runs nothing when declined or when the claude CLI is missing', async () => {
+      const claude = fakeClaude();
+      expect(await offerEngramClaudePlugin({ nonInteractive: false, hasClaude: () => true, confirm: async () => false, run: claude.run })).toBe('declined');
+      expect(await offerEngramClaudePlugin({ nonInteractive: false, hasClaude: () => false, confirm: yes, run: claude.run })).toBe('no-claude-cli');
+      expect(claude.calls).toEqual([]);
+    });
+
+    test('an already-registered marketplace does not block the install; a failed install is reported, never thrown', async () => {
+      const marketplaceFails = fakeClaude({ 'plugin marketplace add Gentleman-Programming/engram': false });
+      expect(await offerEngramClaudePlugin({ nonInteractive: false, hasClaude: () => true, confirm: yes, run: marketplaceFails.run })).toBe('installed');
+      const installFails = fakeClaude({ 'plugin install engram@engram': false });
+      expect(await offerEngramClaudePlugin({ nonInteractive: false, hasClaude: () => true, confirm: yes, run: installFails.run })).toBe('failed');
+    });
+  });
+
+  test.skipIf(!HAS_ALL_HARNESSES)('discovers the MCP environment contracts from the loader filter on every host, and exposes launch guidance', async () => {
+    // Each server names what it reads in its `.env` loader's `--filter`, the
+    // same list on all three hosts: the six DBHUB_* dbhub.toml interpolates,
+    // the two SLACK_MCP_*, the OpenAPI pair. None is core scope (project or
+    // tooling), so the installer defers them to `bun run setup:doctor` instead
+    // of prompting. No remote server's key appears: those run at harness level.
+    const expected = [
       'API_BASE_URL',
       'DBHUB_DATABASE',
       'DBHUB_HOST',
@@ -168,11 +218,20 @@ describe('installer Codex lifecycle', () => {
       'DBHUB_TYPE',
       'DBHUB_USER',
       'OPENAPI_SPEC_PATH',
-      'POSTMAN_API_KEY',
-      'TAVILY_API_KEY',
-    ]);
-    expect(launchCommandsForAgents(['claude-code', 'opencode', 'codex']))
-      .toEqual(['bun claude', 'bun opencode', 'bun codex']);
+      'SLACK_MCP_REACTION_TOOL',
+      'SLACK_MCP_XOXP_TOKEN',
+    ];
+    expect(await discoverRequiredEnvVars(['codex'], REPO_ROOT)).toEqual(expected);
+    expect(await discoverRequiredEnvVars(['claude-code'], REPO_ROOT)).toEqual(expected);
+    expect(await discoverRequiredEnvVars(['opencode'], REPO_ROOT)).toEqual(expected);
+  });
+});
+
+describe('installer harness selection (ADR-0012)', () => {
+  test('the selection is added to the declared list, never shrinks it', () => {
+    expect(mergedHarnesses([], ['claude-code'])).toEqual(['claude']);
+    expect(mergedHarnesses(['codex', 'claude'], ['claude-code', 'opencode'])).toEqual(['codex', 'claude', 'opencode']);
+    expect(mergedHarnesses(['opencode'], [])).toEqual(['opencode']);
   });
 });
 
@@ -189,7 +248,7 @@ describe('compatibility repair lifecycle', () => {
     });
   });
 
-  test('refuses to replace a real Claude skills directory', () => {
+  test.skipIf(!HAS_CLAUDE)('refuses to replace a real Claude skills directory', () => {
     const root = compatibilityFixture();
     mkdirSync(join(root, '.claude/skills'), { recursive: true });
     writeFileSync(join(root, '.claude/skills/owned.txt'), 'preserve me\n');
@@ -198,7 +257,7 @@ describe('compatibility repair lifecycle', () => {
     expect(readFileSync(join(root, '.claude/skills/owned.txt'), 'utf8')).toBe('preserve me\n');
   });
 
-  test('reclaims the skills CLI per-skill symlink shim without losing a skill body', () => {
+  test.skipIf(!HAS_CLAUDE)('reclaims the skills CLI per-skill symlink shim without losing a skill body', () => {
     // `bunx skills add` (project level) writes the body to .agents/skills/<slug>/ and then
     // creates .claude/skills/ as a REAL directory of per-skill symlinks. `bun run setup`
     // installs community skills BEFORE repairing compatibility, so this is what a clean
@@ -219,7 +278,7 @@ describe('compatibility repair lifecycle', () => {
     expect(repairClaudeSkillsAlias(root, 'linux').status).toBe('valid');
   });
 
-  test('still refuses a shim directory that also holds real content', () => {
+  test.skipIf(!HAS_CLAUDE)('still refuses a shim directory that also holds real content', () => {
     const root = compatibilityFixture();
     mkdirSync(join(root, '.agents/skills/playwright-cli'), { recursive: true });
     mkdirSync(join(root, '.claude/skills'), { recursive: true });
@@ -230,7 +289,7 @@ describe('compatibility repair lifecycle', () => {
     expect(readFileSync(join(root, '.claude/skills/hand-written.md'), 'utf8')).toBe('mine\n');
   });
 
-  test('refuses a symlink shim pointing outside the canonical skills store', () => {
+  test.skipIf(!HAS_CLAUDE)('refuses a symlink shim pointing outside the canonical skills store', () => {
     const root = compatibilityFixture();
     mkdirSync(join(root, 'elsewhere/rogue'), { recursive: true });
     mkdirSync(join(root, '.claude/skills'), { recursive: true });
@@ -239,23 +298,23 @@ describe('compatibility repair lifecycle', () => {
     expect(() => repairClaudeSkillsAlias(root, 'linux')).toThrow('Refusing to replace');
   });
 
-  test('installer and updater repairs are idempotent', async () => {
+  test.skipIf(!HAS_CLAUDE)('installer and updater repairs are idempotent', async () => {
     const root = compatibilityFixture();
     const first = repairRepositoryCompatibility(root, 'linux');
     const second = repairRepositoryCompatibility(root, 'linux');
-    expect(first.wrappersWritten).toBe(aliasCount(root) * 2);
-    expect(second).toMatchObject({ wrappersWritten: 0, alias: { status: 'valid' } });
+    expect(first.alias?.status).toBe('created');
+    expect(second).toMatchObject({ shadowingCommandsMoved: [], alias: { status: 'valid' } });
 
     const steps: string[] = [];
     const hook = makeAgentCompatibilityHook(recordingSink(steps), root);
     await hook({ applied: [] } as never);
     await hook({ applied: [] } as never);
-    expect(steps.at(-1)).toContain('0 wrapper(s) actualizado(s)');
+    expect(steps.at(-1)).toBe('Compatibilidad lista: alias valid.');
   });
 });
 
 describe('doctor and updater parity', () => {
-  test('reports file correctness separately from Codex trust and CLI availability', () => {
+  test.skipIf(!HAS_CODEX)('reports file correctness separately from Codex trust and CLI availability', () => {
     const root = compatibilityFixture();
     repairRepositoryCompatibility(root, 'linux');
     const diagnostic = diagnoseAgentCompatibility(root, { platform: 'linux', codexCliDetected: false });
@@ -264,10 +323,8 @@ describe('doctor and updater parity', () => {
     expect(diagnostic.errors).toEqual([]);
     expect(diagnostic.errors_by_surface).toEqual([]);
     expect(diagnostic.alias.status).toBe('valid');
-    // Derived from the copied manifest and `.mcp.json`, never literal counts: a
-    // downstream project with more aliases or servers passes unchanged.
-    const expected = aliasCount(root);
-    expect(diagnostic.command_wrappers).toEqual({ expected, claude: expected, opencode: expected, ok: true });
+    // Derived from `.mcp.json`, never a literal count: a downstream project
+    // with more servers passes unchanged.
     expect(diagnostic.mcp).toMatchObject({ expected_servers: declaredMcpIds(root).length, parity: true });
     expect(diagnostic.codex).toMatchObject({
       cli_detected: false,
@@ -278,7 +335,7 @@ describe('doctor and updater parity', () => {
     });
   });
 
-  test('reports a missing alias and grouped errors without throwing', () => {
+  test.skipIf(!HAS_CODEX)('reports a missing alias and grouped errors without throwing', () => {
     const root = compatibilityFixture();
     repairRepositoryCompatibility(root, 'linux');
     rmSync(join(root, '.claude/skills'));
@@ -296,10 +353,10 @@ describe('doctor and updater parity', () => {
   test('updater owns every canonical source and generated adapter family', () => {
     const paths = COMPONENTS.flatMap(component => component.paths);
     expect(paths).toContain('.agents/skills');
-    expect(paths).toContain('.agents/compatibility');
     expect(paths).toContain('.agents/hooks');
-    expect(paths).toContain('.claude/commands');
-    expect(paths).toContain('.opencode/commands');
+    // The alias wrappers are retired: harness command dirs are the project's own.
+    expect(paths).not.toContain('.claude/commands');
+    expect(paths).not.toContain('.opencode/commands');
     expect(paths).toContain('.opencode/plugins');
     expect(paths).toContain('.codex');
     // Since 8.2 `agent-root-config` delivers `.claude/settings.json` once and
@@ -312,6 +369,54 @@ describe('doctor and updater parity', () => {
     const syncedFiles = COMPONENTS.flatMap(component => component.files ?? []);
     for (const never of ['CLAUDE.md', '.mcp.json', 'opencode.jsonc']) {
       expect(syncedFiles).not.toContain(never);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T3 community skills. Installed once at scaffold time, gitignored, and
+// outside the updater's surface — so without this reporting a project runs its
+// scaffold-day copy forever with no signal. Reporting only: no reinstall path,
+// because an overwrite of a gitignored skill has no backup to restore from.
+// ---------------------------------------------------------------------------
+
+describe('community skill version reporting', () => {
+  const SHA = 'a'.repeat(40);
+  const OTHER = 'b'.repeat(40);
+
+  test('reads the remote HEAD from one ls-remote, no clone', () => {
+    const calls: string[][] = [];
+    const run = (binary: string, args: string[]): { ok: boolean, stdout: string } => {
+      calls.push([binary, ...args]);
+      return { ok: true, stdout: `${SHA}\tHEAD\n` };
+    };
+
+    expect(remoteHeadRef('https://github.com/microsoft/playwright-cli', run)).toBe(SHA);
+    expect(calls).toEqual([['git', 'ls-remote', 'https://github.com/microsoft/playwright-cli', 'HEAD']]);
+  });
+
+  test('an unreachable or nonsense remote yields null, never a stale sha', () => {
+    expect(remoteHeadRef('x', () => ({ ok: false, stdout: '' }))).toBeNull();
+    expect(remoteHeadRef('x', () => ({ ok: true, stdout: '' }))).toBeNull();
+    expect(remoteHeadRef('x', () => ({ ok: true, stdout: 'not-a-sha\tHEAD\n' }))).toBeNull();
+  });
+
+  test('ignorance never reads as current', () => {
+    expect(communitySkillStatus(false, SHA, SHA)).toBe('not-installed');
+    expect(communitySkillStatus(true, null, SHA)).toBe('untracked');
+    expect(communitySkillStatus(true, SHA, null)).toBe('unknown');
+  });
+
+  test('compares the recorded baseline against the remote head', () => {
+    expect(communitySkillStatus(true, SHA, SHA)).toBe('current');
+    expect(communitySkillStatus(true, SHA, OTHER)).toBe('outdated');
+  });
+
+  test('every declared T3 skill carries the package the baseline is recorded against', () => {
+    expect(PROJECT_LEVEL_SKILLS.length).toBeGreaterThan(0);
+    for (const item of PROJECT_LEVEL_SKILLS) {
+      expect(item.package).toMatch(/^https?:\/\//);
+      expect(item.skill).toBeTruthy();
     }
   });
 });

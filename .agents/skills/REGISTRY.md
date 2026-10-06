@@ -1,6 +1,6 @@
 # Skill Registry (auto-generated)
 
-> Generated: `2026-09-02T16:32:16.780Z`
+> Generated: `2026-10-06T23:29:57.940Z`
 > Generator: `bun scripts/build-skill-registry.ts`
 > Protocol: `.agents/skills/agentic-qa-core/references/skill-resolver.md`
 
@@ -8,7 +8,7 @@ This file is the per-session compact-rules cache for the Skill Resolver protocol
 The orchestrator copies one or more `## Skill: <slug>` blocks below into every subagent briefing under `## Project Standards (auto-resolved)`.
 Subagents trust those compact rules and only read the full SKILL.md when explicitly instructed.
 
-Skills indexed: 22
+Skills indexed: 20
 
 ---
 ## Skill: acli
@@ -36,20 +36,6 @@ Skills indexed: 22
 **Read full SKILL.md when**: the compact rules above are insufficient (e.g. novel scenario, debugging, or the briefing tells you to load the full skill).
 
 > Source: `.agents\skills\acli\SKILL.md` · phase: `unknown` · extraction strategy: B
-
----
-
-## Skill: adapt-framework
-
-**Purpose**: Adapt this boilerplate's KATA test architecture, auth, schemas, variables, fixtures, CI, MCPs, and reporting to a project already reverse...
-
-**Compact Rules**:
-- This skill has one mode, `adapt`. Forward `$ARGUMENTS` unchanged and load `references/adaptation-workflow.md`.
-- The reference owns the complete idempotent Phase 0-9 workflow. Its boundary is mandatory: Phases 0-2 are analysis and planning only; Phase 3 begins only after explicit approval of `.context/reports/adapt-framework-plan.md`. Never bypass its genericness scan, credential stops, or ordered verification gate.
-
-**Read full SKILL.md when**: the compact rules above are insufficient (e.g. novel scenario, debugging, or the briefing tells you to load the full skill).
-
-> Source: `.agents\skills\adapt-framework\SKILL.md` · phase: `unknown` · extraction strategy: B
 
 ---
 
@@ -485,22 +471,6 @@ Skills indexed: 22
 **Read full SKILL.md when**: starting a sprint cold, resuming a session, or handling a bug-triage / sprint-wide flow not covered by the rules above.
 
 > Source: `.agents\skills\sprint-testing\SKILL.md` · phase: `unknown` · source: frontmatter `compact_rules` (verbatim)
-
----
-
-## Skill: sync-ai-context
-
-**Purpose**: Synchronize AI-critical repository documents against current context, package scripts, skills, aliases, and project identity.
-
-**Compact Rules**:
-- Legacy `sync-ai-memory` invocations route to `sync` for backward compatibility. The canonical name avoids confusion with Engram persistent memory.
-- Forward `$ARGUMENTS` unchanged.
-- Load `references/sync.md`, patch only verified facts, preserve all protected sections, run its cross-document and security checks, then report per-file outcomes.
-- This skill synchronizes repository documents. It does not read, write, merge, or replace Engram observations.
-
-**Read full SKILL.md when**: the compact rules above are insufficient (e.g. novel scenario, debugging, or the briefing tells you to load the full skill).
-
-> Source: `.agents\skills\sync-ai-context\SKILL.md` · phase: `unknown` · extraction strategy: B
 
 ---
 

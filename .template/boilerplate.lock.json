@@ -16,12 +16,18 @@
     "env-template": "06947fa1e0e334db64660502d83620ec11b6210a",
     "agent-compatibility": "0c1b4e11856bdd2a288d657f5863a9cbf816cc47",
     "codex-config": "0c1b4e11856bdd2a288d657f5863a9cbf816cc47",
-    "agent-root-config": "0c1b4e11856bdd2a288d657f5863a9cbf816cc47"
+    "agent-root-config": "0c1b4e11856bdd2a288d657f5863a9cbf816cc47",
+    "instructions": "c56ab92090c654d442439f8dd5c024602321cde3",
+    "config-core": "c56ab92090c654d442439f8dd5c024602321cde3",
+    "env-schema": "c56ab92090c654d442439f8dd5c024602321cde3",
+    "worktree-include": "c56ab92090c654d442439f8dd5c024602321cde3",
+    "orca-config": "c56ab92090c654d442439f8dd5c024602321cde3",
+    "playwright-cli-config": "c56ab92090c654d442439f8dd5c024602321cde3"
   },
   "syncedComponents": [],
   "ignoreFileSync": {
     ".gitignore": {
-      "lastSyncedSha": "82195b81ce755d511e8da13bbd672adae0959232",
+      "lastSyncedSha": "6b57602b158a4c84ab1565849cecc55928402a20",
       "appendedLines": [
         ".context/reports/*",
         "!.context/reports/README.md",
@@ -38,7 +44,24 @@
         ".claude/skills/playwright-best-practices/",
         ".claude/skills/resend-cli/",
         ".backups*/",
-        ".template/last-apply.json"
+        ".template/last-apply.json",
+        ".playwright/profiles/",
+        ".playwright-cli/",
+        "storage-state-*.json",
+        "!.env.schema",
+        "!.env.core.schema",
+        "!.env.provider.schema",
+        "env.d.ts",
+        ".template/doctrine-ledger.json",
+        ".context/*",
+        "!.context/README.md",
+        "!.context/project-config.md",
+        "!.context/ADR/",
+        "!.context/regression-history/",
+        "!.context/reports/",
+        "!.context/PBI/",
+        ".agents/skills/skill-creator/",
+        ".agents/skills/diagram-design/"
       ]
     },
     ".prettierignore": {
@@ -53,7 +76,7 @@
   "packageJsonSync": {
     "package.json": {
       "scripts": {
-        "lastSyncedSha": "477cbad473d1d9f96311a8edb9d9d8463b621c50",
+        "lastSyncedSha": "a8b6d772a122c3523b239e8dbf42edea5d26a026",
         "appliedKeys": [
           "context:hydrate",
           "git:policy",
@@ -63,24 +86,43 @@
           "agents:compat",
           "agents:compat:check",
           "codex",
-          "skills:evals"
+          "skills:evals",
+          "agents:schema",
+          "agents:schema:check",
+          "context:map",
+          "docs",
+          "docs:build",
+          "docs:check",
+          "env:set",
+          "harness:env",
+          "harness:env:check",
+          "instructions:audit",
+          "instructions:check",
+          "jira:baseline",
+          "tests:explain:render",
+          "vars:schema",
+          "vars:schema:check",
+          "worktree:audit",
+          "worktree:provision"
         ]
       },
       "devDependencies": {
-        "lastSyncedSha": "477cbad473d1d9f96311a8edb9d9d8463b621c50",
-        "appliedKeys": []
+        "lastSyncedSha": "a8b6d772a122c3523b239e8dbf42edea5d26a026",
+        "appliedKeys": [
+          "varlock"
+        ]
       },
       "dependencies": {
-        "lastSyncedSha": "477cbad473d1d9f96311a8edb9d9d8463b621c50",
+        "lastSyncedSha": "a8b6d772a122c3523b239e8dbf42edea5d26a026",
         "appliedKeys": []
       },
       "lint-staged": {
-        "lastSyncedSha": "477cbad473d1d9f96311a8edb9d9d8463b621c50",
+        "lastSyncedSha": "a8b6d772a122c3523b239e8dbf42edea5d26a026",
         "appliedKeys": []
       }
     }
   },
-  "cliVersion": "8.4",
-  "lastSyncedAt": "2026-09-15T22:30:23.651Z",
+  "cliVersion": "8.5",
+  "lastSyncedAt": "2026-10-06T23:14:07.861Z",
   "variableSystemVersion": 1
 }

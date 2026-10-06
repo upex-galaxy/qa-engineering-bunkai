@@ -7,18 +7,18 @@
  *
  *   PHASE 1 — DETECTION
  *     1-repo-verify     Verify repo root (package.json name / installer.lock.json)
- *     2-gentle-ai-detect  Detect gentle-ai (presence + version)
- *     3-gentle-ai-install gentle-ai install / skip decision
+ *     2-gentle-ai-detect  Detect the engram binary (presence + version)
+ *     3-gentle-ai-install engram install instructions / skip decision
  *     4-agent-detect    Detect agents (Claude Code / OpenCode / Codex) and prompt selection
  *
  *   PHASE 2 — INSTALLATION
  *     5-deps-install    Install dependencies (`bun install`)
  *     6-playwright      Install Playwright browsers (`bun run pw:install`)
- *     8-skills-gentle-ai Install engram via gentle-ai minimal preset (or skip)
+ *     8-skills-gentle-ai Wire Engram memory per agent via `engram setup` (or skip)
  *     9-skills-community Install community skills via `bunx skills add`
  *
  *   PHASE 3 — CONFIGURATION
- *     10-mcp-env        Wire `.env` for MCP servers + offer direnv autoload
+ *     10-mcp-env        Wire `.env` for MCP servers
  *     13-github-repo    GitHub repository (optional)
  *
  *   PHASE 4 — VERIFICATION
@@ -32,6 +32,10 @@
  *                         workflows + link-types sync; empty {} placeholders for
  *                         any catalog still missing (anti STALE-PATH)
  *     14-jira-check     `bun run jira:check`
+ *
+ * The `*-gentle-ai*` step keys predate the switch to `engram setup`; they keep
+ * their names so `.template/installer.state.json` and `--force-step` stay
+ * backward compatible.
  *
  * Idempotency: each step writes an ISO timestamp to state.steps[<key>] on success.
  * Re-runs skip completed steps unless overridden via:
@@ -50,41 +54,64 @@
  *
  * Non-interactive env vars:
  *   INSTALL_AGENTS=claude-code,opencode,codex   Comma-list of agents to configure
- *   INSTALL_SKIP_GENTLE_AI=1              Treat gentle-ai as skipped
+ *   INSTALL_SKIP_ENGRAM=1                 Treat Engram as skipped (legacy alias: INSTALL_SKIP_GENTLE_AI=1)
  *   INSTALL_SKIP_DEPS=1                   Skip `bun install`
  *   INSTALL_SKIP_PLAYWRIGHT=1             Skip `bun run pw:install`
  *   INSTALL_SKIP_AGENTS_SETUP=1           Skip `bun run agents:setup`
  *   INSTALL_FORCE_AGENTS_SETUP=1          Re-run agents:setup even if state shows it ran
- *   INSTALL_FORCE_GENTLE_AI=1             Re-run gentle-ai engram install even if state shows it ran
+ *   INSTALL_FORCE_ENGRAM=1                Re-run `engram setup` even if state shows it ran (legacy alias: INSTALL_FORCE_GENTLE_AI=1)
  *   INSTALL_FORCE_COMMUNITY=1             Re-run community skill install even if state shows it ran
  *   INSTALL_FORCE_GITHUB=1                Re-run GitHub remote setup even if a remote is already wired
  *   INSTALL_SKIP_COMMUNITY=1              Skip `bunx skills add` step
  *   INSTALL_SKIP_JIRA=1                   Skip optional Jira bootstrap
  *   INSTALL_SKIP_API=1                    Skip optional API auth bootstrap
- *   INSTALL_SKIP_DIRENV=1                 Skip direnv autoload setup
+ *   INSTALL_SECRETS_PROVIDER=1password    Opt in to a secret manager (default: .env); with
+ *   INSTALL_SECRETS_VAULT=<vault>         the vault its references point at
  */
 
+import type { Harness } from './lib/harness-selection.ts';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, rmdirSync, rmSync, writeFileSync } from 'node:fs';
 import { chmod, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 
 import { checkbox, password } from '@inquirer/prompts';
+import { parse as parseYaml } from 'yaml';
 import {
   checkAgentCompatibility,
+  removeShadowingCommands,
   repairClaudeSkillsAlias,
-  repairCommandWrappers,
+  SHADOWING_COMMANDS_BACKUP_DIR,
 } from './lib/agent-compatibility.ts';
 import {
   resolveAtlassianInstance,
   toSiteSlug,
   writeAtlassianUrlToYaml,
 } from './lib/atlassian-instance.ts';
+import { removeRetiredEnvLines, retiredEnvKeysIn } from './lib/env-schema.ts';
+import { CLI_LOGINS, HARNESS_LEVEL_HOWTO, HARNESS_LEVEL_MCPS } from './lib/harness-level-mcps.ts';
+import {
+  declaredHarnesses,
+  explicitHarnesses,
+  HARNESS_FILES,
+  HARNESS_LABEL,
+  HARNESSES,
+  HARNESSES_KEY,
+  withHarnesses,
+} from './lib/harness-selection.ts';
 import { playwrightBrowsersInstalled } from './lib/playwright-cache.ts';
+import {
+  ADAPTERS,
+  applySecretsChoice,
+  isValidVaultName,
+  PROVIDER_SCHEMA_FILE,
+  readSecretsConfig,
+  SECRET_PROVIDERS,
+} from './lib/secret-providers.ts';
 import * as tui from './lib/tui.ts';
 import { runVariablesFlow } from './lib/variables-flow.ts';
-import { criticalVars, nonCriticalVars, valueSourceOf, varsFor } from './lib/variables-manifest.ts';
+import { criticalVars, nonCriticalVars, valueSourceOf, VAR_MANIFEST, varsFor } from './lib/variables-manifest.ts';
 
 // ============================================================================
 // Types
@@ -98,7 +125,7 @@ type McpStatus = 'configured-with-key' | 'configured-no-key' | 'placeholder' | '
 
 type CliStatus = 'found' | 'missing';
 
-interface GentleAiInfo {
+interface EngramInfo {
   found: boolean
   version?: string
   compatible?: boolean
@@ -129,8 +156,17 @@ interface InstallState {
   version: 1
   installedAt: string
   agents: AgentId[]
-  gentleAi: {
-    status: GentleAiInfo['status']
+  engram: {
+    status: EngramInfo['status']
+    version?: string
+    checkedAt: string
+  }
+  /**
+   * Legacy: state files written while the installer drove `gentle-ai install`.
+   * Read-only; nothing writes it any more.
+   */
+  gentleAi?: {
+    status: EngramInfo['status']
     version?: string
     checkedAt: string
   }
@@ -155,6 +191,22 @@ interface InstallState {
    */
   steps: Record<string, string>
   skills: Record<string, InstallStatus>
+  /**
+   * The upstream ref each PROJECT-level community skill was installed from,
+   * keyed by slug. The skills CLI records a CONTENT hash in
+   * `skills-lock.json`, which pins what is on disk but cannot be compared
+   * against a remote without cloning it — so `bun run setup:doctor` would have
+   * no way to tell a scaffold-day skill from a current one. These three skills
+   * are gitignored and sit outside the updater's surface, so nothing else
+   * would ever notice.
+   *
+   * Recorded on a successful install, and only reported afterwards: doctor
+   * never offers to reinstall, because an overwrite of a gitignored skill has
+   * no backup to restore from and would destroy a local patch unrecoverably.
+   * Absent for a repo installed before this existed — that reads as "not
+   * tracked", never as "current".
+   */
+  communitySkillRefs?: Record<string, CommunitySkillRef>
   mcps: Record<string, McpStatus>
   externalClis: Record<string, CliStatus>
   pendingEnvVars: string[]
@@ -179,36 +231,40 @@ const OPENCODE_CONFIG_PATH = join(REPO_ROOT, 'opencode.jsonc');
 const CODEX_CONFIG_PATH = join(REPO_ROOT, '.codex', 'config.toml');
 const ENV_PATH = join(REPO_ROOT, '.env');
 const ENV_EXAMPLE_PATH = join(REPO_ROOT, '.env.example');
+const PROJECT_YAML_FILE = join(REPO_ROOT, '.agents', 'project.yaml');
 
 const REPO_NAME = 'agentic-qa-boilerplate';
 
-const MIN_GENTLE_AI_VERSION = [1, 26, 5] as const;
+const MIN_ENGRAM_VERSION = [3, 0, 0] as const;
 
 const ENGRAM_COMPONENT = 'engram';
 
 /**
- * gentle-ai install uses the `minimal` preset → installs ONLY the engram
- * component (persistent memory binary + MCP adapter + agent config wiring).
+ * Engram (persistent memory) is wired per agent with the engram binary's own
+ * `engram setup <agent>`, which registers the Engram MCP server for that agent
+ * and nothing else. Claude Code gets `--protocol=slim`: the session protocol
+ * then arrives through the Engram plugin's hooks instead of a block written
+ * into the user's instructions file.
  *
- * Rationale: this is a QA repo. Our workflow skills (sprint-testing,
- * test-automation, test-documentation, regression-testing) already provide
- * Plan → Code → Verify natively. SDD-* skills target software-design workflows
- * (specs, archives, strict TDD) that don't apply to E2E/API test authoring.
- * The vendored `judgment-day` skill (committed under .agents/skills/) provides
- * adversarial dual-review without needing the SDD bundle.
- *
- * If you want the full SDD suite for `/framework-development` framework
- * evolution work, run manually:
- *   gentle-ai install --agent <a> --components engram,sdd
+ * Rationale: the installer no longer runs `gentle-ai install`. Even with the
+ * minimal preset it writes its own orchestrator / agent-routing instructions,
+ * review agents, hooks and telemetry into the user-level agent config, which
+ * compete with this repo's orchestration doctrine (AGENTS.md §3). The repo's
+ * workflow skills cover Plan → Code → Verify natively, and adversarial review
+ * is the vendored `judgment-day` skill, so nothing from gentle-ai's workflow
+ * layer is needed.
  */
 
+// The servers the three project MCP files declare. Remote servers whose only
+// project-side content was an API key (web search, Postman) are not here any
+// more: they run at harness level, connected once per machine, and the skills
+// resolve them by capability (ADR-0005, D3; the list of moved servers lives in
+// cli/lib/harness-level-mcps.ts).
 const CANONICAL_MCPS = [
   'context7',
-  'tavily',
-  'playwright',
+  'slack-aurora',
   'dbhub',
   'openapi',
-  'postman',
 ] as const;
 
 // External CLIs are NEVER installed by this script — install commands depend on
@@ -239,7 +295,7 @@ const EXTERNAL_CLIS: ReadonlyArray<{ name: string, install?: string, docs: strin
   },
   {
     // Promoted to the sole default tool for Jira/Confluence/TMS work
-    // (Atlassian MCP is opt-in via docs/mcp/).
+    // (Atlassian MCP is opt-in via .agents/skills/agentic-qa-core/references/mcp-atlassian-optin.md).
     name: 'acli',
     docs: 'https://developer.atlassian.com/cloud/acli/guides/install-acli/',
     purpose: 'Atlassian (Jira/Confluence) CLI — used by /acli skill',
@@ -264,11 +320,65 @@ const EXTERNAL_CLIS: ReadonlyArray<{ name: string, install?: string, docs: strin
     docs: 'https://resend.com/docs/cli',
     purpose: 'email development + transactional sending',
   },
+  {
+    // The STANDALONE binary. The repo also pins `varlock` as a devDependency,
+    // which is what `bun run vars:schema:check`, the pre-push warning and
+    // `setup:doctor` run through `bunx`; that copy is NOT on the PATH a
+    // harness gives an MCP server (measured: `bunx varlock` resolves from the
+    // project, a bare `varlock` does not). The binary stays optional: the MCP
+    // `.env` loader runs `bunx -p varlock@<pin>`, which needs only bun.
+    //
+    // Install paths, per varlock.dev and the 1.20.0 release assets:
+    //   macOS        brew install dmno-dev/tap/varlock
+    //   Linux/macOS  curl -sSfL https://varlock.dev/install.sh | sh -s
+    //   Windows      no PowerShell installer is published; Git Bash runs the
+    //                same install.sh (msys/mingw are recognised, installs
+    //                varlock.exe), and `npm i -g varlock` / `bun add -g varlock`
+    //                put a shim on PATH for PowerShell and cmd.
+    //                (documented, not measured on Windows)
+    name: 'varlock',
+    install: 'brew install dmno-dev/tap/varlock   # macOS. Linux: curl -sSfL https://varlock.dev/install.sh | sh -s · Windows: npm i -g varlock',
+    docs: 'https://varlock.dev/getting-started/installation',
+    purpose: 'env schema validation + secret injection (optional standalone; the devDependency covers the gates)',
+  },
+  {
+    // Desktop app (Orca ADE) that also ships a scriptable `orca` CLI. Fully
+    // optional: enables `/orca-orchestration` multi-session coordination.
+    // The boilerplate works identically without it — one-shot subagents
+    // (AGENTS.md §3) remain the default executor.
+    name: 'orca',
+    install: 'brew install --cask stablyai/orca/orca   # macOS. Windows/Linux: download from https://www.onorca.dev/docs/install',
+    docs: 'https://www.onorca.dev/docs/cli/overview',
+    purpose: 'multi-session agent orchestration (optional) — used by /orca-orchestration',
+  },
 ];
 
-interface CommunitySkill {
+export interface CommunitySkill {
   package: string // git URL or shorthand 'owner/repo'
   skill?: string // omit or '*' to install all skills from the package
+}
+
+export interface CommunitySkillRef {
+  /** The package the skill came from, as declared in PROJECT_LEVEL_SKILLS. */
+  package: string
+  /** Remote HEAD commit at install time, or null when the remote was unreachable. */
+  ref: string | null
+  recordedAt: string
+}
+
+/**
+ * The remote's current HEAD commit, via a single `git ls-remote` — no clone.
+ * Null on any failure (offline, private repo, not a git remote): an unknown
+ * baseline must read as unknown, never as up to date.
+ */
+export function remoteHeadRef(
+  packageUrl: string,
+  run: (binary: string, args: string[]) => { ok: boolean, stdout: string } = tryRun,
+): string | null {
+  const result = run('git', ['ls-remote', packageUrl, 'HEAD']);
+  if (!result.ok) { return null; }
+  const sha = result.stdout.trim().split(/\s+/)[0];
+  return /^[0-9a-f]{40}$/.test(sha) ? sha : null;
 }
 
 export function buildCommunitySkillArgs(
@@ -298,7 +408,7 @@ export const PROJECT_SKILL_DESTINATION = '.agents/skills';
  * agentic-qa-onboard, acli, xray-cli, git-flow-master) live committed under
  * .agents/skills/ and are NOT listed here.
  */
-const PROJECT_LEVEL_SKILLS: ReadonlyArray<CommunitySkill> = [
+export const PROJECT_LEVEL_SKILLS: ReadonlyArray<CommunitySkill> = [
   // playwright-cli (Microsoft): browser automation CLI used by /sprint-testing
   // and /test-automation as the primary [AUTOMATION_TOOL].
   { package: 'https://github.com/microsoft/playwright-cli', skill: 'playwright-cli' },
@@ -309,6 +419,19 @@ const PROJECT_LEVEL_SKILLS: ReadonlyArray<CommunitySkill> = [
   // external CLI verified in step 11 — see AGENTS.md §6.5 CLI→Skill auto-load.
   // Project-level because email provider choice varies per project.
   { package: 'https://github.com/resend/resend-skills', skill: 'resend-cli' },
+  // skill-creator (Anthropic): the builder of every skill this repo scaffolds.
+  // Project-level since the context-skills layer: `/framework-development`
+  // (when the change IS a skill) and `project-context` mode `context-skill`
+  // (a consumer's `<aspect>-context`) both scaffold through it, so a clone
+  // without it would silently skip the description pass and the test prompts.
+  { package: 'https://github.com/anthropics/skills', skill: 'skill-creator' },
+  // diagram-design (Cathryn Lavery): the diagrams inside the business context
+  // maps (`project-context` modes data / api / e2e and each business
+  // `*-context` refresh). Capability `diagrams`, resolved by skill presence
+  // with a point-of-use STOP (agentic-qa-core/references/business-context-maps.md
+  // §7). Project-level because one workflow depends on it and must not hinge on
+  // a user's global plugin list; a user-level install satisfies it too.
+  { package: 'https://github.com/cathrynlavery/diagram-design', skill: 'diagram-design' },
 ];
 
 /**
@@ -320,10 +443,8 @@ const PROJECT_LEVEL_SKILLS: ReadonlyArray<CommunitySkill> = [
  * generation. bun is the runtime used across all projects.
  */
 const USER_LEVEL_SKILLS: ReadonlyArray<CommunitySkill> = [
-  { package: 'https://github.com/anthropics/skills', skill: 'skill-creator' },
   { package: 'https://github.com/vercel-labs/skills', skill: 'find-skills' },
   { package: 'https://github.com/xixu-me/skills', skill: 'github-actions-docs' },
-  { package: 'https://github.com/obra/superpowers', skill: 'brainstorming' },
   { package: 'https://github.com/lewislulu/html-ppt-skill', skill: 'html-ppt' },
   { package: 'https://bun.sh/docs', skill: 'bun' },
   // Cross-project decision-deck CLI (`mkd`, Make Decision): the AI writes a spec
@@ -333,9 +454,14 @@ const USER_LEVEL_SKILLS: ReadonlyArray<CommunitySkill> = [
 ];
 
 // Matches Claude Code ${VAR} and ${VAR:-default} placeholders in .mcp.json.
-const MCP_VAR_PATTERN = /\$\{([A-Z][A-Z0-9_]*)(?::-[^}]*)?\}/g;
+export const MCP_VAR_PATTERN = /\$\{([A-Z][A-Z0-9_]*)(?::-[^}]*)?\}/g;
 // Matches OpenCode {env:VAR} placeholders in opencode.jsonc.
-const OPENCODE_VAR_PATTERN = /\{env:([A-Z][A-Z0-9_]*)\}/g;
+export const OPENCODE_VAR_PATTERN = /\{env:([A-Z][A-Z0-9_]*)\}/g;
+// Matches the `.env` loader's `"--filter", "A,B"` pair, spelled the same in the
+// three MCP configs (JSON, JSONC and TOML arrays). The names it lists are what
+// the server reads from `.env` (MCP_ENV_LOADER_* in
+// cli/lib/agent-compatibility-contracts.ts).
+export const MCP_FILTER_PATTERN = /"--filter"\s*,\s*"([A-Z][A-Z0-9_,]*)"/g;
 const SECRET_NAME_HINTS = ['TOKEN', 'KEY', 'SECRET', 'PASSWORD'];
 
 // Map MCP server → env vars its secrets depend on. Servers with empty arrays
@@ -344,34 +470,32 @@ const SECRET_NAME_HINTS = ['TOKEN', 'KEY', 'SECRET', 'PASSWORD'];
 // `dbhub` is intentionally NOT managed by the installer or doctor — the user
 // must edit `dbhub.toml` manually based on the target project's database
 // (sqlserver/postgres/mysql/sqlite/mariadb). Marked as `placeholder` always.
-const MCP_SERVER_SECRETS: Record<string, readonly string[]> = {
-  context7: [],
-  tavily: ['TAVILY_API_KEY'],
-  playwright: [],
-  dbhub: ['DBHUB_HOST', 'DBHUB_DATABASE', 'DBHUB_USER', 'DBHUB_PASSWORD'],
-  openapi: ['API_BASE_URL', 'OPENAPI_SPEC_PATH'],
-  postman: ['POSTMAN_API_KEY'],
+export const MCP_SERVER_SECRETS: Record<string, readonly string[]> = {
+  'context7': [],
+  // The Slack bot MCP. SLACK_MCP_REACTION_TOOL is a channel allowlist, not a
+  // secret, but the configs reference it, so it is declared here too; empty is
+  // a valid value (reactions off).
+  'slack-aurora': ['SLACK_MCP_XOXP_TOKEN', 'SLACK_MCP_REACTION_TOOL'],
+  // All six that `dbhub.toml` interpolates. PORT and TYPE were missing until
+  // 2026-09-20: the configs referenced them, this hand-written map did not, so
+  // the installer never prompted for them and a fresh project hit a dbhub that
+  // would not connect. Found by the generator's scan-vs-declared cross-check,
+  // which is the whole reason that cross-check exists.
+  'dbhub': ['DBHUB_TYPE', 'DBHUB_HOST', 'DBHUB_PORT', 'DBHUB_DATABASE', 'DBHUB_USER', 'DBHUB_PASSWORD'],
+  'openapi': ['API_BASE_URL', 'OPENAPI_SPEC_PATH'],
 };
 
 // Vars discovered from committed MCP configs that the installer should NOT
-// prompt for at install time — they are project-bound (require an existing
-// backend / Postman workspace / DB connection) and are surfaced later by
-// `bun run doctor` once the user has the necessary external resources.
-const INSTALLER_DEFERRED_VARS = new Set<string>([
-  'API_BASE_URL',
-  'OPENAPI_SPEC_PATH',
-  'POSTMAN_API_KEY',
-  'DBHUB_TYPE',
-  'DBHUB_HOST',
-  'DBHUB_PORT',
-  'DBHUB_DATABASE',
-  'DBHUB_USER',
-  'DBHUB_PASSWORD',
-]);
+// prompt for at install time: everything that is not CORE. A project var
+// needs a backend or a database the installer cannot know about, and a
+// tooling var is a tool's own business; both are surfaced by
+// `bun run setup:doctor` with their scope. Derived from the manifest so a new
+// project var never needs a hand-list entry to be deferred.
+const INSTALLER_DEFERRED_VARS = new Set<string>(VAR_MANIFEST.filter(s => s.scope !== 'core').map(s => s.name));
 
-// The CRITICAL set (project-independent tool credentials) is owned by the day-0
-// credentials step. configureMcps skips any of these it encounters (e.g.
-// TAVILY_API_KEY surfaced from .mcp.json) so the user is asked exactly once.
+// The OFFERED set (manifest `critical: true`) is owned by the day-0 credentials
+// step. configureMcps skips any of these it encounters so the user is asked
+// exactly once.
 const CRITICAL_VAR_NAMES = new Set<string>(criticalVars().map(s => s.name));
 
 // ============================================================================
@@ -405,12 +529,12 @@ const DRY_RUN = process.argv.includes('--dry-run');
 // --yes: pre-approve remote secret writes (required for non-interactive remote push).
 const YES = process.argv.includes('--yes');
 
-const SKIP_GENTLE_AI = process.env.INSTALL_SKIP_GENTLE_AI === '1';
+const SKIP_ENGRAM = process.env.INSTALL_SKIP_ENGRAM === '1' || process.env.INSTALL_SKIP_GENTLE_AI === '1';
 const SKIP_DEPS = process.env.INSTALL_SKIP_DEPS === '1';
 const SKIP_PLAYWRIGHT = process.env.INSTALL_SKIP_PLAYWRIGHT === '1';
 const SKIP_AGENTS_SETUP = process.env.INSTALL_SKIP_AGENTS_SETUP === '1';
 const FORCE_AGENTS_SETUP = process.env.INSTALL_FORCE_AGENTS_SETUP === '1';
-const FORCE_GENTLE_AI = process.env.INSTALL_FORCE_GENTLE_AI === '1';
+const FORCE_ENGRAM = process.env.INSTALL_FORCE_ENGRAM === '1' || process.env.INSTALL_FORCE_GENTLE_AI === '1';
 // --sync-skills: standalone repair mode. Re-installs project community skills
 // into `.agents/skills/` and global community skills into each selected
 // harness's user-level store. Implies a forced community re-run.
@@ -420,7 +544,6 @@ const FORCE_GITHUB = process.env.INSTALL_FORCE_GITHUB === '1';
 const SKIP_JIRA = process.env.INSTALL_SKIP_JIRA === '1';
 const SKIP_API = process.env.INSTALL_SKIP_API === '1';
 const SKIP_COMMUNITY = process.env.INSTALL_SKIP_COMMUNITY === '1';
-const SKIP_DIRENV = process.env.INSTALL_SKIP_DIRENV === '1';
 
 // ============================================================================
 // Logger (wraps tui + keeps inline COLORS for printClosingSummary)
@@ -564,10 +687,10 @@ async function verifyRepoRoot(): Promise<void> {
 }
 
 // ============================================================================
-// Phase 1 — Step 2 (2-gentle-ai-detect): detect gentle-ai
+// Phase 1 — Step 2 (2-gentle-ai-detect): detect the engram binary
 // ============================================================================
 
-function parseGentleAiVersion(output: string): string | undefined {
+function parseEngramVersion(output: string): string | undefined {
   const match = output.match(/(\d+)\.(\d+)\.(\d+)/);
   return match ? `${match[1]}.${match[2]}.${match[3]}` : undefined;
 }
@@ -576,24 +699,26 @@ function isCompatible(version: string): boolean {
   const parts = version.split('.').map(n => Number.parseInt(n, 10));
   for (let i = 0; i < 3; i++) {
     const got = parts[i] ?? 0;
-    const min = MIN_GENTLE_AI_VERSION[i];
+    const min = MIN_ENGRAM_VERSION[i];
     if (got > min) { return true; }
     if (got < min) { return false; }
   }
   return true;
 }
 
-function detectGentleAi(): GentleAiInfo {
-  if (SKIP_GENTLE_AI) {
+function detectEngram(): EngramInfo {
+  if (SKIP_ENGRAM) {
     return { found: false, status: 'skipped' };
   }
-  const path = which('gentle-ai');
+  const path = which('engram');
   if (!path) { return { found: false, status: 'missing' }; }
 
-  const result = tryRun('gentle-ai', ['version']);
+  const result = tryRun('engram', ['version']);
   if (!result.ok) { return { found: true, status: 'incompatible' }; }
 
-  const version = parseGentleAiVersion(result.stdout);
+  // A `go install` build reports `dev` instead of a semver: no version to
+  // compare, so it lands in `incompatible` and the user decides.
+  const version = parseEngramVersion(result.stdout);
   if (!version) { return { found: true, status: 'incompatible' }; }
 
   const compatible = isCompatible(version);
@@ -606,31 +731,34 @@ function detectGentleAi(): GentleAiInfo {
 }
 
 // ============================================================================
-// Phase 1 — Step 3 (3-gentle-ai-install): gentle-ai install instructions / skip
+// Phase 1 — Step 3 (3-gentle-ai-install): engram install instructions / skip
 // ============================================================================
 
-async function handleMissingGentleAi(): Promise<'show-and-exit' | 'skip'> {
-  log.warn('gentle-ai not detected on PATH.');
-  log.info('gentle-ai installs engram (persistent memory) into your agent via the minimal preset.');
+const ENGRAM_INSTALL_DOCS = 'https://github.com/Gentleman-Programming/engram/blob/main/docs/INSTALLATION.md';
+
+async function handleMissingEngram(): Promise<'show-and-exit' | 'skip'> {
+  log.warn('engram not detected on PATH.');
+  log.info('engram is the persistent-memory binary; the installer wires it into each selected agent with `engram setup`.');
   log.info('See INSTALLER.md for what gets installed and what stays local.');
   process.stdout.write('\n');
 
   const choice = await maybeConfirm(
-    'Show install commands and exit so you can install it? (No = continue without gentle-ai)',
+    'Show install commands and exit so you can install it? (No = continue without Engram)',
     true,
   );
 
   if (choice) {
-    log.banner('Install gentle-ai with one of these commands:');
-    process.stdout.write('  macOS  : brew install gentle-ai\n');
-    process.stdout.write('  Linux  : go install github.com/Gentleman-Programming/gentle-ai/cmd/gentle-ai@latest\n\n');
-    log.dim('  Docs: https://github.com/Gentleman-Programming/gentle-ai');
+    log.banner('Install engram with one of these commands:');
+    // Homebrew refuses formulas from an untrusted tap, so the tap is trusted first.
+    process.stdout.write('  macOS / Linux (Homebrew) : brew trust gentleman-programming/tap && brew install gentleman-programming/tap/engram\n');
+    process.stdout.write('  Any OS with Go           : go install github.com/Gentleman-Programming/engram/v3/cmd/engram@latest\n\n');
+    log.dim(`  Docs: ${ENGRAM_INSTALL_DOCS}`);
     log.dim('After installing, re-run: bun run setup');
     return 'show-and-exit';
   }
 
-  log.warn('Continuing without gentle-ai. Engram will NOT be installed.');
-  log.dim('  To install them later, install gentle-ai (https://github.com/Gentleman-Programming/gentle-ai)');
+  log.warn('Continuing without Engram. Cross-session memory will NOT be wired.');
+  log.dim(`  To add it later, install engram (${ENGRAM_INSTALL_DOCS})`);
   log.dim('  and re-run: bun run setup');
   return 'skip';
 }
@@ -798,23 +926,75 @@ async function runPlaywrightInstall(state: InstallState, forceKeys: Set<string>)
 }
 
 // ============================================================================
-// Phase 2 — Step 8 (8-skills-gentle-ai): install skills via gentle-ai
+// Phase 2 — Step 8 (8-skills-gentle-ai): wire Engram per agent
 // ============================================================================
 
-function runGentleAiInstall(args: string[]): { ok: boolean, reason?: string } {
-  // gentle-ai uses Go's `flag` package with a fixed schema
-  // (--agent(s), --component(s), --skill(s), --persona, --preset,
-  // --sdd-mode, --dry-run). There is NO --yes flag — passing one
-  // yields `flag provided but not defined: -yes`. Internal prompts
-  // (e.g. "Add to allowlist? (y/N)") auto-pick their default answer
-  // when stdin is not a TTY, so subprocess calls are effectively
-  // non-interactive without any extra flag.
-  const result = tryRun('gentle-ai', args);
+// LINT.IfChange(engram-setup)
+/**
+ * `engram setup` argument list per agent. The agent slugs this installer
+ * uses (claude-code / opencode / codex) are the slugs `engram setup` accepts.
+ * Passing the agent explicitly skips its interactive menu.
+ */
+export function engramSetupArgs(agent: AgentId): string[] {
+  return agent === 'claude-code'
+    ? ['setup', agent, '--protocol=slim']
+    : ['setup', agent];
+}
+
+/** The Engram Claude Code plugin ships the session hooks `engram setup` does not write. */
+export const ENGRAM_PLUGIN_COMMANDS: string[][] = [
+  ['plugin', 'marketplace', 'add', 'Gentleman-Programming/engram'],
+  ['plugin', 'install', 'engram@engram'],
+];
+const ENGRAM_PLUGIN_MANUAL = 'claude plugin marketplace add Gentleman-Programming/engram && claude plugin install engram@engram';
+
+export interface EngramPluginDeps {
+  nonInteractive: boolean
+  hasClaude: () => boolean
+  confirm: (message: string) => Promise<boolean>
+  run: (args: string[]) => { ok: boolean, stderr: string }
+}
+
+export type EngramPluginOutcome = 'installed' | 'declined' | 'skipped-non-interactive' | 'no-claude-cli' | 'failed';
+
+/**
+ * Offer to install the Engram Claude Code plugin. Never fatal: every path that
+ * does not install it prints the manual command and returns. Non-interactive
+ * runs never install it, because it writes user-level Claude Code config.
+ */
+export async function offerEngramClaudePlugin(deps: EngramPluginDeps): Promise<EngramPluginOutcome> {
+  const printManual = (): void => {
+    log.dim('  For Engram session hooks in Claude Code, install the plugin once:');
+    log.dim(`    ${ENGRAM_PLUGIN_MANUAL}`);
+  };
+  if (deps.nonInteractive) { printManual(); return 'skipped-non-interactive'; }
+  if (!deps.hasClaude()) { printManual(); return 'no-claude-cli'; }
+  if (!(await deps.confirm('Install the Engram Claude Code plugin (session hooks) now?'))) {
+    printManual();
+    return 'declined';
+  }
+  const [marketplaceAdd, pluginInstall] = ENGRAM_PLUGIN_COMMANDS;
+  // A marketplace that is already registered makes `add` fail; the install
+  // below is what decides the outcome.
+  deps.run(marketplaceAdd);
+  const result = deps.run(pluginInstall);
+  if (!result.ok) {
+    log.warn(`  Engram plugin install failed: ${result.stderr.trim() || 'unknown error'}`);
+    printManual();
+    return 'failed';
+  }
+  log.success('  Engram Claude Code plugin installed.');
+  return 'installed';
+}
+// LINT.ThenChange(README.md, INSTALLER.md, docs/core/empezar-aqui.html)
+
+function runEngramSetup(agent: AgentId): { ok: boolean, reason?: string } {
+  const result = tryRun('engram', engramSetupArgs(agent));
   if (result.ok) { return { ok: true }; }
   return { ok: false, reason: result.stderr.trim() || result.stdout.trim() || 'unknown error' };
 }
 
-async function installSkillsViaGentleAi(
+async function installEngramPerAgent(
   agents: AgentId[],
   state: InstallState,
   forceKeys: Set<string>,
@@ -824,19 +1004,16 @@ async function installSkillsViaGentleAi(
     log.info('No agents selected, skipping engram install.');
     return;
   }
-  if (!shouldRunStep(state, key, forceKeys) && !FORCE_GENTLE_AI) {
-    log.dim(`  gentle-ai engram already installed at ${state.steps[key]}.`);
-    log.dim('  Set INSTALL_FORCE_GENTLE_AI=1 or --force-step 8-skills-gentle-ai to re-run.');
+  if (!shouldRunStep(state, key, forceKeys) && !FORCE_ENGRAM) {
+    log.dim(`  Engram already wired at ${state.steps[key]}.`);
+    log.dim('  Set INSTALL_FORCE_ENGRAM=1 or --force-step 8-skills-gentle-ai to re-run.');
     return;
   }
 
-  // One batched gentle-ai call per agent: installs the engram component
-  // only (minimal preset). gentle-ai snapshots existing config files before
-  // overwriting (compressed tar.gz, deduped, last 5 retained), so re-runs
-  // are safe and idempotent — they DO re-apply, they don't skip. The
-  // `engram::<agent>` state keys stay for the closing summary and doctor
-  // script.
-  log.info(`This will run ${agents.length} gentle-ai install command(s) — one batched call per agent.`);
+  // One `engram setup <agent>` call per agent. It registers the Engram MCP
+  // server for that agent and writes nothing else. The `engram::<agent>`
+  // state keys feed the closing summary.
+  log.info(`This will run ${agents.length} \`engram setup\` command(s) — one per agent.`);
 
   const proceed = await maybeConfirm('Continue with engram installation?', true);
   if (!proceed) {
@@ -849,18 +1026,12 @@ async function installSkillsViaGentleAi(
   }
 
   for (const agent of agents) {
-    log.banner(`Installing engram for: ${agent}`);
+    log.banner(`Wiring engram for: ${agent}`);
 
     const s = tui.spinner();
-    s.start(`Installing engram (minimal preset) for ${agent}…`);
+    s.start(`Running engram ${engramSetupArgs(agent).join(' ')}…`);
 
-    const result = runGentleAiInstall([
-      'install',
-      '--agent',
-      agent,
-      '--preset',
-      'minimal',
-    ]);
+    const result = runEngramSetup(agent);
 
     const status: InstallStatus = result.ok ? 'installed' : 'failed';
     if (result.ok) {
@@ -868,6 +1039,16 @@ async function installSkillsViaGentleAi(
     }
     else {
       s.stop(`Failed: engram (${agent}) — ${result.reason}`);
+    }
+    if (result.ok && agent === 'claude-code') {
+      // `engram setup` registers the MCP server only; the session hooks ship
+      // in the Claude Code plugin, installed once per machine.
+      await offerEngramClaudePlugin({
+        nonInteractive: NON_INTERACTIVE,
+        hasClaude: () => which('claude') !== null,
+        confirm: async message => maybeConfirm(message, true),
+        run: args => tryRun('claude', args),
+      });
     }
 
     state.skills[`${ENGRAM_COMPONENT}::${agent}`] = status;
@@ -941,6 +1122,15 @@ async function installCommunitySkills(
     if (result.ok) {
       s.stop(`Installed: ${slug}`);
       state.skills[stateKey] = 'installed';
+      // Only PROJECT level: these three are gitignored, re-fetched on every
+      // install and invisible to the updater, so they are the ones that can
+      // silently run their scaffold-day version forever.
+      if (level === 'project') {
+        state.communitySkillRefs = {
+          ...state.communitySkillRefs,
+          [slug]: { package: item.package, ref: remoteHeadRef(item.package), recordedAt: new Date().toISOString() },
+        };
+      }
     }
     else {
       s.stop(`Failed: ${slug} — ${(result.stderr || result.stdout).trim().slice(0, 120) || 'unknown error'}`);
@@ -952,12 +1142,13 @@ async function installCommunitySkills(
 
 // ============================================================================
 // Phase 3 — CONFIGURATION
-// Step 10 (10-mcp-env): Wire .env for MCP servers (+ direnv autoload offer)
+// Step 10 (10-mcp-env): Wire .env for MCP servers
 // ============================================================================
 //
 // `.mcp.json` and `opencode.jsonc` are committed with `${VAR}` / `{env:VAR}`
 // expansion. The installer no longer rewrites those files — it only ensures
-// `.env` contains the required values, then optionally enables direnv.
+// `.env` contains the required values. Nothing is exported into the shell:
+// every MCP server reads `.env` itself through the `.env` loader.
 
 export function isSecretName(name: string): boolean {
   return SECRET_NAME_HINTS.some(hint => name.endsWith(hint) || name.endsWith(`_${hint}`));
@@ -970,6 +1161,13 @@ function stripJsoncComments(input: string): string {
   return input
     .replace(/\/\*[\s\S]*?\*\//g, '')
     .replace(/^\s*\/\/.*$/gm, '');
+}
+
+/** Every name a `.env` loader `--filter` lists in `content`. */
+function collectFilterNames(content: string, seen: Set<string>): void {
+  for (const m of content.matchAll(MCP_FILTER_PATTERN)) {
+    for (const name of m[1].split(',')) { if (name.length > 0) { seen.add(name); } }
+  }
 }
 
 function collectCodexMcpEnvVars(value: unknown, seen: Set<string>): void {
@@ -998,15 +1196,18 @@ export async function discoverRequiredEnvVars(
   if (agents.includes('claude-code') && existsSync(claudeMcpPath)) {
     const content = await readFile(claudeMcpPath, 'utf8');
     for (const m of content.matchAll(MCP_VAR_PATTERN)) { seen.add(m[1]); }
+    collectFilterNames(content, seen);
   }
   if (agents.includes('opencode') && existsSync(openCodeConfigPath)) {
     const raw = await readFile(openCodeConfigPath, 'utf8');
     const content = stripJsoncComments(raw);
     for (const m of content.matchAll(OPENCODE_VAR_PATTERN)) { seen.add(m[1]); }
+    collectFilterNames(content, seen);
   }
   if (agents.includes('codex') && existsSync(codexConfigPath)) {
-    const parsed = Bun.TOML.parse(await readFile(codexConfigPath, 'utf8'));
-    collectCodexMcpEnvVars(parsed, seen);
+    const raw = await readFile(codexConfigPath, 'utf8');
+    collectCodexMcpEnvVars(Bun.TOML.parse(raw), seen);
+    collectFilterNames(raw.replace(/^\s*#.*$/gm, ''), seen);
   }
   return [...seen].sort();
 }
@@ -1019,12 +1220,35 @@ export function parseEnvFile(content: string): Record<string, string> {
     const eq = line.indexOf('=');
     if (eq <= 0) { continue; }
     const key = line.slice(0, eq).trim();
-    let value = line.slice(eq + 1).trim();
-    if (
-      (value.startsWith('"') && value.endsWith('"'))
-      || (value.startsWith('\'') && value.endsWith('\''))
-    ) {
+    // The comment scan runs on the RAW slice, BEFORE trimming. `.env.example`
+    // ships `DBHUB_TYPE=          # sqlserver | postgres`, and trimming first
+    // would delete the very whitespace that marks the `#` as a comment, leaving
+    // the comment itself as the value.
+    const rawValue = line.slice(eq + 1);
+    let value = rawValue.trim();
+    const quoted
+      = (value.startsWith('"') && value.endsWith('"') && value.length > 1)
+        || (value.startsWith('\'') && value.endsWith('\'') && value.length > 1);
+    if (quoted) {
       value = value.slice(1, -1);
+    }
+    else {
+      // Strip an inline comment from an UNQUOTED value. `.env.example` ships
+      // lines like `DBHUB_TYPE=          # sqlserver | postgres | mysql`, and
+      // without this the installer read the whole trailing string as the
+      // credential: a value that is wrong rather than missing, which fails at
+      // connect time looking like a broken database instead of a bad .env.
+      //
+      // Two things stay part of the value, and both are real:
+      //   - a `#` inside QUOTES, which is why this is the else branch
+      //   - a `#` with NO whitespace before it, because `PASS=pass#word` is a
+      //     password containing a hash, not a comment
+      // So the marker is whitespace-then-hash. Same rule as `stripInlineComments`
+      // in cli/lib/harness-env.ts, which is tested; kept as four characters of
+      // regex here rather than an import, because that module imports FROM this
+      // one and the dependency would be circular.
+      const comment = rawValue.search(/\s#/);
+      if (comment >= 0) { value = rawValue.slice(0, comment).trim(); }
     }
     out[key] = value;
   }
@@ -1041,6 +1265,31 @@ export async function ensureEnvFileExists(): Promise<void> {
   }
   await writeFile(ENV_PATH, '', 'utf8');
   log.warn('.env.example missing; created empty .env.');
+}
+
+/**
+ * Delete the `.env` lines that assign a retired key (`RETIRED_KEYS`), after one
+ * confirmation. The schema no longer declares them, and an undeclared EMPTY
+ * key fails `varlock load`, so this runs before anything validates `.env`.
+ * Non-interactive: report the names and edit nothing. Values are never printed.
+ */
+export async function cleanRetiredEnvKeys(): Promise<void> {
+  if (!existsSync(ENV_PATH)) { return; }
+  const text = await readFile(ENV_PATH, 'utf8');
+  const present = retiredEnvKeysIn(text);
+  if (present.length === 0) { return; }
+  if (NON_INTERACTIVE) {
+    log.warn(`.env still sets retired key(s) nothing reads any more: ${present.join(', ')}. Delete those lines (or run \`bun run setup:doctor\` in a terminal and accept the cleanup).`);
+    return;
+  }
+  const remove = await maybeConfirm(`.env still sets ${present.length} retired key(s) nothing reads any more (${present.join(', ')}). Delete those lines?`, true);
+  if (!remove) {
+    log.dim('  Kept. `bun run setup:doctor` keeps listing them until they are gone.');
+    return;
+  }
+  const { text: next, removed } = removeRetiredEnvLines(text);
+  await writeFile(ENV_PATH, next, { mode: 0o600 });
+  log.success(`Deleted from .env: ${removed.join(', ')}`);
 }
 
 export async function appendVarsToEnv(vars: Record<string, string>): Promise<void> {
@@ -1132,15 +1381,16 @@ async function configureMcps(agents: AgentId[], state: InstallState): Promise<vo
       continue;
     }
     if (CRITICAL_VAR_NAMES.has(name)) {
-      // CRITICAL tool credentials (e.g. TAVILY_API_KEY) are owned by the day-0
-      // step, which prompts the whole critical set with the right context. Skip
-      // here to avoid double-asking; do NOT mark pending (day-0 collects it).
-      log.dim(`  ${name}: collected in the day-0 credentials step.`);
+      // OFFERED credentials are owned by the day-0 step, which prompts the
+      // whole set with the right context. Skip here to avoid double-asking; do
+      // NOT mark pending (day-0 offers it).
+      log.dim(`  ${name}: offered in the day-0 credentials step.`);
       continue;
     }
     if (INSTALLER_DEFERRED_VARS.has(name)) {
       stillPending.push(name);
-      log.dim(`  ${name}: deferred to \`bun run doctor\` (project-bound — needs backend / DB / workspace).`);
+      const scope = VAR_MANIFEST.find(s => s.name === name)?.scope ?? 'project';
+      log.dim(`  ${name}: deferred to \`bun run setup:doctor\` (${scope}-scoped: ${scope === 'project' ? 'needs your backend / DB' : 'a tool credential, optional'}).`);
       continue;
     }
     if (NON_INTERACTIVE) {
@@ -1180,25 +1430,27 @@ async function configureMcps(agents: AgentId[], state: InstallState): Promise<vo
 }
 
 // ----------------------------------------------------------------------------
-// Day-0 credentials (the CRITICAL set — project-INDEPENDENT tool credentials)
+// Day-0 credentials: the OFFERED set (manifest `critical: true`)
 // ----------------------------------------------------------------------------
 //
-// The installer prompts ONLY for the CRITICAL set (manifest `critical: true`),
-// identical across both boilerplates:
-//   - ATLASSIAN_EMAIL / ATLASSIAN_API_TOKEN — Jira/acli credentials (.env)
-//   - ATLASSIAN_URL — the Jira/acli SITE HOST, persisted to .agents/project.yaml
-//   - RESEND_API_KEY — email-testing tool (also authenticates the resend CLI)
-//   - TAVILY_API_KEY — the pre-configured Tavily web-search MCP
-// These exist independent of any project-under-test, so a fresh clone can
-// provide them on day-0.
+// The installer OFFERS the credentials the manifest marks `critical` and never
+// requires one: skip is a first-class answer, and nothing later blocks on it
+// (ADR-0005). Which vars those are is the manifest's call (`criticalVars()`);
+// today it is the Atlassian pair plus the site host, which goes to
+// .agents/project.yaml rather than .env. A human is at the keyboard at day-0,
+// so it is the cheapest moment to paste a credential the Jira scripts will
+// need; that is the whole reason the offer exists.
 //
-// Everything else is NON-critical and is NEVER asked here (nor warned about):
+// Everything else is NEVER asked here (nor warned about):
 //   - TEST_ENV — written to its manifest default ("local") WITHOUT prompting.
-//   - LOCAL_USER_* / STAGING_USER_*, XRAY_*, DBHUB_*, API_*, POSTMAN_*, … —
-//     project-dependent; surfaced in the closing "Next steps" list, settable
+//   - every project-scoped var (your app's login, database, API) and every
+//     tooling var — listed by scope in the closing "Next steps", settable
 //     later via `bun run setup --variables`.
+//   - MCP servers that run at harness level (web search, Postman) and CLI
+//     logins (acli, resend) — printed as guidance at the close; nothing to
+//     type into .env.
 
-// Per-critical-var prompt context (grouped note shown before the prompt block).
+// Per-offered-var prompt context (grouped note shown before the prompt block).
 // Vars without an entry are prompted with just their name.
 const CRITICAL_VAR_NOTES: Record<string, { title: string, body: string }> = {
   ATLASSIAN_URL: {
@@ -1213,14 +1465,6 @@ const CRITICAL_VAR_NOTES: Record<string, { title: string, body: string }> = {
     title: 'Atlassian credentials (Jira / acli)',
     body: 'Used by acli + scripts/sync-jira-*.ts. Get a token at: https://id.atlassian.com/manage-profile/security/api-tokens',
   },
-  RESEND_API_KEY: {
-    title: 'Resend API key (email testing)',
-    body: 'Used for email-flow tests (signup, password reset, magic links). Get a key: https://resend.com/api-keys — Docs: https://resend.com/docs/api-reference/introduction',
-  },
-  TAVILY_API_KEY: {
-    title: 'Tavily API key (web-search MCP)',
-    body: 'Powers the pre-configured Tavily MCP for community-fix / troubleshooting research. Get a key: https://app.tavily.com',
-  },
 };
 
 async function configureDayZeroCredentials(state: InstallState): Promise<void> {
@@ -1229,20 +1473,20 @@ async function configureDayZeroCredentials(state: InstallState): Promise<void> {
   const newValues: Record<string, string> = {};
 
   // ── TEST_ENV default (NO prompt) ─────────────────────────────────────────
-  // Project-dependent; the user reconfigures it manually or via /adapt-framework
+  // Project-dependent; the user reconfigures it manually or via /test-framework-adaptation
   // when wiring the framework to their project-under-test. Write the manifest
   // default only when absent — never clobber an existing value.
   const currentTestEnv = (envValues.TEST_ENV ?? process.env.TEST_ENV ?? '').trim();
   if (currentTestEnv.length === 0) {
     const defaultEnv = nonCriticalVars().find(s => s.name === 'TEST_ENV')?.defaultValue ?? 'local';
     newValues.TEST_ENV = defaultEnv;
-    log.dim(`  TEST_ENV: defaulting to "${defaultEnv}" (reconfigure later via /adapt-framework).`);
+    log.dim(`  TEST_ENV: defaulting to "${defaultEnv}" (reconfigure later via /test-framework-adaptation).`);
   }
   else {
     log.dim(`  TEST_ENV: already set to "${currentTestEnv}".`);
   }
 
-  // ── CRITICAL tool credentials (idempotent, project-independent) ──────────
+  // ── OFFERED credentials (idempotent; skip is a first-class answer) ────────
   for (const spec of criticalVars()) {
     const name = spec.name;
 
@@ -1312,9 +1556,10 @@ async function configureDayZeroCredentials(state: InstallState): Promise<void> {
     log.success(`Wrote ${Object.keys(newValues).length} day-0 var(s) to .env: ${Object.keys(newValues).join(', ')}`);
   }
 
-  // Refresh MCP per-server status for any server whose secrets include a
-  // critical var we just collected (e.g. tavily ← TAVILY_API_KEY), since
-  // configureMcps deferred those to this step.
+  // Refresh MCP per-server status for any server whose secrets include an
+  // offered var we just collected, since configureMcps deferred those to this
+  // step. (No committed server depends on one today; kept so a project that
+  // adds such a server keeps an accurate status line.)
   const merged = { ...envValues, ...newValues };
   for (const [server, secrets] of Object.entries(MCP_SERVER_SECRETS)) {
     if (secrets.length === 0) { continue; }
@@ -1322,120 +1567,121 @@ async function configureDayZeroCredentials(state: InstallState): Promise<void> {
     const anyMissing = secrets.some(s => !merged[s] || merged[s].trim().length === 0);
     state.mcps[server] = anyMissing ? 'placeholder' : 'configured-with-key';
   }
+}
 
-  // ── Resend CLI authentication attempt ────────────────────────────────────
-  const resendToken = (process.env.RESEND_API_KEY ?? '').trim();
-  if (resendToken.length > 0 && !NON_INTERACTIVE) {
-    const resendBin = tryRun('resend', ['--version']);
-    if (!resendBin.ok) {
-      log.dim('  resend CLI not installed — skipping auto-login. Install: npm i -g resend-cli');
+// ----------------------------------------------------------------------------
+// Step 10a: where SECRET values live. `.env` is the default and stays first
+// (ADR-0010); a secret manager is the advanced opt-in. Choosing one writes the
+// committed overlay `.env.provider.schema` (references only) and records the
+// choice in `.agents/project.yaml` `secrets:`. Logic: cli/lib/secret-providers.ts.
+// ----------------------------------------------------------------------------
+
+function suggestedVault(): string {
+  try {
+    const name = (parseYaml(readFileSync(PROJECT_YAML_FILE, 'utf8')) as { project?: { project_name?: unknown } })?.project?.project_name;
+    const slug = typeof name === 'string' ? name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') : '';
+    return `${slug || 'myproject'}-dev`;
+  }
+  catch { return 'myproject-dev'; }
+}
+
+/**
+ * A project whose `.gitignore` predates the overlay denies every `.env*`, so the
+ * new file would be ignored in silence and never reach the team. `.gitignore`
+ * is the project's (the updater does not sync it): re-include the one file,
+ * which holds references only, and say so.
+ */
+function ensureOverlayTracked(): void {
+  const ignored = spawnSync('git', ['check-ignore', '-q', PROVIDER_SCHEMA_FILE], { cwd: REPO_ROOT }).status === 0;
+  if (!ignored) { return; }
+  const gitignore = join(REPO_ROOT, '.gitignore');
+  const before = existsSync(gitignore) ? readFileSync(gitignore, 'utf8') : '';
+  const sep = before === '' || before.endsWith('\n') ? '' : '\n';
+  writeFileSync(gitignore, `${before}${sep}# The secret-manager overlay holds references only (ADR-0010): it travels.\n!${PROVIDER_SCHEMA_FILE}\n`, 'utf8');
+  log.success(`Re-included ${PROVIDER_SCHEMA_FILE} in .gitignore (it was ignored by an .env* rule).`);
+}
+
+async function offerSecretManager(): Promise<void> {
+  if (existsSync(join(REPO_ROOT, PROVIDER_SCHEMA_FILE))) {
+    log.info(`Secret manager overlay present (${PROVIDER_SCHEMA_FILE}): uncommented keys resolve from the manager; a non-empty .env value still wins.`);
+    return;
+  }
+  let config;
+  try { config = readSecretsConfig(PROJECT_YAML_FILE); }
+  catch (err) {
+    log.warn(`${(err as Error).message} Keeping secrets in .env.`);
+    return;
+  }
+
+  const requested = process.env.INSTALL_SECRETS_PROVIDER?.trim();
+  if (requested) {
+    if (!(SECRET_PROVIDERS as readonly string[]).includes(requested)) {
+      log.warn(`INSTALL_SECRETS_PROVIDER=${requested} is not one of ${SECRET_PROVIDERS.join(' | ')}; keeping secrets in .env.`);
+      return;
     }
-    else {
-      const loginRes = spawnSync('resend', ['login', '--key', resendToken], {
-        stdio: ['ignore', 'pipe', 'pipe'],
-        timeout: 10000,
+    config.provider = requested as typeof config.provider;
+  }
+  const vaultFromEnv = process.env.INSTALL_SECRETS_VAULT?.trim();
+  if (vaultFromEnv) { config.onepassword.vault = vaultFromEnv; }
+
+  if (!NON_INTERACTIVE) {
+    const choice = await tui.select({
+      message: 'Where will this project keep its SECRET values?',
+      options: [
+        { label: '.env file (default: no account needed, works offline)', value: 'local' as const },
+        { label: '1Password (advanced: shared vault for the team, service account for CI)', value: '1password' as const },
+      ],
+      initialValue: config.provider,
+    });
+    if (tui.isCancel(choice)) { throw Object.assign(new Error('Aborted by user.'), { name: 'ExitPromptError' }); }
+    config.provider = choice;
+    if (config.provider === '1password') {
+      const vault = await tui.text({
+        message: '1Password vault the references point at (team: <project>-dev; personal plan: Private)',
+        initialValue: config.onepassword.vault ?? suggestedVault(),
+        validate: v => (v && isValidVaultName(v.trim()) ? undefined : 'Letters, digits, ".", "_" or "-" only.'),
       });
-      if (loginRes.status === 0) {
-        process.stdout.write(`${tui.statusIcon('ok')} resend CLI authenticated.\n`);
-      }
-      else {
-        process.stdout.write(`${tui.statusIcon('warn')} resend CLI auto-login failed (exit ${loginRes.status}). Run manually: resend login\n`);
-      }
+      if (tui.isCancel(vault)) { throw Object.assign(new Error('Aborted by user.'), { name: 'ExitPromptError' }); }
+      config.onepassword.vault = vault.trim();
+      const account = await tui.text({
+        message: 'Account shorthand from `op account list` (Enter = the CLI default account)',
+        initialValue: config.onepassword.account ?? '',
+      });
+      if (tui.isCancel(account)) { throw Object.assign(new Error('Aborted by user.'), { name: 'ExitPromptError' }); }
+      config.onepassword.account = account.trim() === '' ? null : account.trim();
+      const auth = await tui.select({
+        message: 'How does a laptop authenticate?',
+        options: [
+          { label: 'Desktop app (biometric; CI uses the service-account token)', value: 'app' as const },
+          { label: 'Service-account token only (no desktop app)', value: 'service-account' as const },
+        ],
+        initialValue: config.onepassword.auth,
+      });
+      if (tui.isCancel(auth)) { throw Object.assign(new Error('Aborted by user.'), { name: 'ExitPromptError' }); }
+      config.onepassword.auth = auth;
     }
   }
-}
 
-// ----------------------------------------------------------------------------
-// direnv autoload sub-step (still part of Step 10 / 10-mcp-env)
-// ----------------------------------------------------------------------------
-
-interface DirenvInfo {
-  installed: boolean
-  version?: string
-  supportsDotenvIfExists: boolean
-  supportsPwshHook: boolean
-  platform: NodeJS.Platform
-}
-
-function detectDirenv(): DirenvInfo {
-  const platform = process.platform;
-  const result = tryRun('direnv', ['version']);
-  if (!result.ok) {
-    return { installed: false, supportsDotenvIfExists: false, supportsPwshHook: false, platform };
+  if (config.provider === 'local') {
+    applySecretsChoice(REPO_ROOT, PROJECT_YAML_FILE, config);
+    log.dim('  Secrets: .env (default). A secret manager is optional: docs/core/variables-de-entorno.html, "Gestores de secretos".');
+    return;
   }
-  const version = result.stdout.trim();
-  const parts = version.split('.').map(n => Number.parseInt(n, 10));
-  const maj = parts[0] ?? 0;
-  const min = parts[1] ?? 0;
-  const supportsDotenvIfExists = maj > 2 || (maj === 2 && min >= 30);
-  const supportsPwshHook = maj > 2 || (maj === 2 && min >= 37);
-  return { installed: true, version, supportsDotenvIfExists, supportsPwshHook, platform };
-}
 
-function installHintForPlatform(): string {
-  if (process.platform === 'win32') {
-    return 'winget install direnv  (then restart Git Bash or PowerShell)';
-  }
-  if (process.platform === 'darwin') {
-    return 'brew install direnv';
-  }
-  return 'sudo apt install direnv  (or: dnf install direnv  /  pacman -S direnv)';
-}
-
-function shellHookHint(info: DirenvInfo): string {
-  const shell = (process.env.SHELL ?? '').toLowerCase();
-  if (process.platform === 'win32' && shell.length === 0) {
-    if (info.supportsPwshHook) {
-      return 'Invoke-Expression "$(direnv hook pwsh)"  →  add to $PROFILE  (PowerShell)';
+  try {
+    const result = applySecretsChoice(REPO_ROOT, PROJECT_YAML_FILE, config);
+    const adapter = ADAPTERS[config.provider];
+    if (result.overlayWritten) {
+      log.success(`Wrote ${PROVIDER_SCHEMA_FILE} (${adapter.label} references only; commit it).`);
+      ensureOverlayTracked();
     }
-    return 'eval "$(direnv hook bash)"  →  add to ~/.bashrc  (Git Bash; PowerShell needs direnv 2.37+)';
+    if (result.yamlWritten) { log.success(`Recorded secrets.provider: ${config.provider} in .agents/project.yaml.`); }
+    log.info(`${adapter.label} setup, once per person:`);
+    for (const line of adapter.setupSteps(config)) { log.dim(`  ${line}`); }
+    log.dim('  The next prompts may still offer .env: skip (Enter) every value the vault holds.');
   }
-  if (shell.endsWith('zsh')) {
-    return 'eval "$(direnv hook zsh)"  →  add to ~/.zshrc';
-  }
-  if (shell.endsWith('fish')) {
-    return 'direnv hook fish | source  →  add to ~/.config/fish/config.fish';
-  }
-  if (shell.endsWith('bash')) {
-    return 'eval "$(direnv hook bash)"  →  add to ~/.bashrc';
-  }
-  return 'eval "$(direnv hook <your-shell>)"  →  see https://direnv.net/docs/hook.html';
-}
-
-async function offerDirenvAutoload(): Promise<void> {
-  if (SKIP_DIRENV) {
-    log.dim('  INSTALL_SKIP_DIRENV=1, skipping direnv setup.');
-    return;
-  }
-  const info = detectDirenv();
-
-  if (!info.installed) {
-    log.info('direnv not installed (optional).');
-    log.dim('  Launch agents with: bun claude  /  bun opencode  /  bun codex  (dotenv-cli loads .env automatically).');
-    log.dim(`  Or install direnv for shell autoload: ${installHintForPlatform()}`);
-    return;
-  }
-  log.info(`direnv ${info.version} detected.`);
-  if (info.platform === 'win32') {
-    log.dim('  Tip: direnv on Windows works best in Git Bash. PowerShell support is experimental and requires direnv 2.37+.');
-  }
-
-  const proceed = await maybeConfirm(
-    'Run `direnv allow` so the repo\'s .envrc auto-loads .env into your shell?',
-    true,
-  );
-  if (!proceed) {
-    log.dim('  Skipped. Launch agents with: bun claude  /  bun opencode  /  bun codex.');
-    return;
-  }
-  const result = tryRun('direnv', ['allow', REPO_ROOT]);
-  if (result.ok) {
-    log.success('direnv allow succeeded — .envrc will auto-load .env on cd.');
-    log.dim(`  Reminder: add this to your shell rc if not already done: ${shellHookHint(info)}`);
-  }
-  else {
-    log.warn('direnv allow failed. Launch agents with: bun claude  /  bun opencode  /  bun codex.');
-    log.dim(`  ${(result.stderr || result.stdout).trim().slice(0, 200)}`);
+  catch (err) {
+    log.warn(`Secret manager not configured: ${(err as Error).message} Secrets stay in .env.`);
   }
 }
 
@@ -1840,6 +2086,9 @@ export function buildInitialState(prior: InstallState | null): InstallState {
     return {
       ...prior,
       agents: migrateAgentIds(prior.agents),
+      // State written before the `engram setup` switch has only `gentleAi`,
+      // which recorded the gentle-ai binary, not engram: start engram fresh.
+      engram: prior.engram ?? { status: 'missing', checkedAt: new Date().toISOString() },
       steps: prior.steps,
       skills: prior.skills ?? {},
       mcps: prior.mcps ?? {},
@@ -1851,7 +2100,7 @@ export function buildInitialState(prior: InstallState | null): InstallState {
     version: 1,
     installedAt: new Date().toISOString(),
     agents: [],
-    gentleAi: { status: 'missing', checkedAt: new Date().toISOString() },
+    engram: { status: 'missing', checkedAt: new Date().toISOString() },
     steps: {},
     skills: {},
     mcps: {},
@@ -1867,10 +2116,6 @@ export function buildInitialState(prior: InstallState | null): InstallState {
   };
 }
 
-export function launchCommandsForAgents(agents: AgentId[]): string[] {
-  return agents.map(agent => agent === 'claude-code' ? 'bun claude' : `bun ${agent}`);
-}
-
 function describeAgentDetection(detected: AgentDetection): string {
   const codex = detected.codexCli
     ? 'CLI found; Desktop uses repository config'
@@ -1880,17 +2125,96 @@ function describeAgentDetection(detected: AgentDetection): string {
   return `Claude Code: ${detected.claudeCode ? 'found' : 'not found'} | OpenCode: ${detected.opencode ? 'found' : 'not found'} | Codex: ${codex}`;
 }
 
+/**
+ * Repair the generated surfaces and run the check. Only the harnesses in use
+ * (`declaredHarnesses`, ADR-0012) count: a harness the project dropped is
+ * never a reason to throw, and without Claude Code there is no alias to make
+ * (`alias: null`).
+ */
 export function repairRepositoryCompatibility(
   root = REPO_ROOT,
   platform: NodeJS.Platform = process.platform,
-): { alias: ReturnType<typeof repairClaudeSkillsAlias>, wrappersWritten: number } {
-  const alias = repairClaudeSkillsAlias(root, platform);
-  const wrappersWritten = repairCommandWrappers(root);
+): { alias: ReturnType<typeof repairClaudeSkillsAlias> | null, shadowingCommandsMoved: string[] } {
+  const alias = declaredHarnesses(root).harnesses.includes('claude') ? repairClaudeSkillsAlias(root, platform) : null;
+  const shadowingCommandsMoved = removeShadowingCommands(root);
   const check = checkAgentCompatibility(root, platform);
   if (!check.ok) {
     throw new Error(`Agent compatibility repair incomplete:\n${check.errors.join('\n')}`);
   }
-  return { alias, wrappersWritten };
+  return { alias, shadowingCommandsMoved };
+}
+
+/** The `harnesses:` entry of each installer agent id. */
+export function harnessOfAgent(agent: AgentId): Harness {
+  return agent === 'claude-code' ? 'claude' : agent;
+}
+
+/**
+ * The `harnesses:` list after an agent selection: the declared list plus the
+ * agents just selected, never fewer. A re-run that selects one agent must not
+ * silently drop a harness a teammate declared; dropping one is an edit to
+ * `.agents/project.yaml`.
+ */
+export function mergedHarnesses(existing: readonly Harness[], agents: readonly AgentId[]): Harness[] {
+  const out = [...existing];
+  for (const harness of agents.map(harnessOfAgent)) {
+    if (!out.includes(harness)) { out.push(harness); }
+  }
+  return out;
+}
+
+/**
+ * Write the agent selection to `harnesses:` in `.agents/project.yaml`, then
+ * OFFER to delete the files of every harness left out (default keep). The
+ * boilerplate itself checks all three and is left alone.
+ */
+export async function recordHarnessSelection(agents: readonly AgentId[], root = REPO_ROOT): Promise<void> {
+  const selection = declaredHarnesses(root);
+  if (selection.source === 'boilerplate' || agents.length === 0) { return; }
+  const yamlPath = join(root, '.agents', 'project.yaml');
+  if (!existsSync(yamlPath)) {
+    log.dim(`  .agents/project.yaml not found: ${HARNESSES_KEY} not recorded (the gates detect the harnesses from the files present).`);
+    return;
+  }
+  const existing = explicitHarnesses(root);
+  const next = mergedHarnesses(existing, agents);
+  if (next.join(',') !== existing.join(',')) {
+    const before = readFileSync(yamlPath, 'utf8');
+    writeFileSync(yamlPath, withHarnesses(before, next));
+    // Read back from the destination, not from the value just computed.
+    const written = explicitHarnesses(root);
+    if (written.join(',') !== next.join(',')) {
+      throw new Error(`${HARNESSES_KEY} in .agents/project.yaml reads [${written.join(', ')}] after writing [${next.join(', ')}]`);
+    }
+    log.success(`Harnesses in use recorded in .agents/project.yaml: ${HARNESSES_KEY}: [${next.join(', ')}]`);
+  }
+
+  for (const harness of HARNESSES.filter(h => !next.includes(h))) {
+    const present = HARNESS_FILES[harness].filter(file => existsSync(join(root, file)));
+    if (present.length === 0) { continue; }
+    const remove = await maybeConfirm(
+      `${HARNESS_LABEL[harness]} is not a harness this project uses. Delete its files (${present.join(', ')})?`,
+      false,
+    );
+    if (!remove) {
+      log.dim(`  Kept ${present.join(', ')}: not checked while ${HARNESSES_KEY} leaves out ${harness}.`);
+      continue;
+    }
+    for (const file of present) {
+      rmSync(join(root, file), { force: true });
+      removeEmptyParents(root, file);
+    }
+    log.success(`Deleted the ${HARNESS_LABEL[harness]} files: ${present.join(', ')}`);
+  }
+}
+
+/** Remove the now-empty directories above a deleted file, never the root itself. */
+function removeEmptyParents(root: string, file: string): void {
+  let dir = dirname(join(root, file));
+  while (dir !== root && dir.startsWith(root) && existsSync(dir) && readdirSync(dir).length === 0) {
+    rmdirSync(dir);
+    dir = dirname(dir);
+  }
 }
 
 // ============================================================================
@@ -1990,7 +2314,7 @@ async function jiraAuthLoop(): Promise<'authenticated' | 'skipped'> {
           '     ATLASSIAN_EMAIL=your-email@example.com',
           '     ATLASSIAN_API_TOKEN=...',
           '     (Get a token at https://id.atlassian.com/manage-profile/security/api-tokens)',
-          '3. Save the file. dotenv auto-loads on the next probe — no shell reload needed.',
+          '3. Save the file. The installer re-reads .env on the next probe — no shell reload needed.',
         ].join('\n'),
         'Fix Atlassian credentials',
       );
@@ -2445,14 +2769,15 @@ function statusFor(found: number, total: number): string {
 // ============================================================================
 
 /**
- * Print the "Next steps — finish later" block: every NON-critical manifest var
- * that is still empty in `.env`, each with its `obtainHint`. These are NEVER
- * asked at install and NEVER warned about — they live here so the user knows
- * where to get them and that `bun run setup --variables` sets them.
+ * Print the "Next steps — finish later" block: every non-offered manifest var
+ * that is still empty in `.env`, grouped by SCOPE (ADR-0005), each with its
+ * `obtainHint`. These are NEVER asked at install and NEVER warned about — they
+ * live here so the user knows where to get them and that `bun run setup
+ * --variables` sets them. The project block is titled as what it is: examples
+ * to rename or delete when the framework is adapted.
  *
- * Excluded: TEST_ENV (carries a default the installer already wrote). DEV-only
- * infra-autogenerated vars (Supabase/Vercel) do not exist in the QA manifest,
- * so nothing further to exclude here.
+ * Excluded: TEST_ENV (carries a default the installer already wrote) and
+ * GitHub-only vars (no `.env` slot; `setup --variables --remote` pushes them).
  */
 function printNonCriticalNextSteps(): void {
   let envValues: Record<string, string> = {};
@@ -2463,29 +2788,84 @@ function printNonCriticalNextSteps(): void {
 
   const pending = nonCriticalVars().filter((spec) => {
     if (spec.defaultValue !== undefined) { return false; } // e.g. TEST_ENV
+    if (!spec.destinations.includes('local')) { return false; }
     const value = (envValues[spec.name] ?? '').trim();
     return value.length === 0;
   });
 
   if (pending.length === 0) { return; }
 
-  tui.section('Next steps — finish later (non-critical vars)');
-  process.stdout.write(`  ${COLORS.dim}These are project-dependent — not needed to start. Set them with:${COLORS.reset}\n`);
+  tui.section('Next steps — finish later (optional vars, by scope)');
+  process.stdout.write(`  ${COLORS.dim}Nothing here blocks the agent. Set what your project needs with:${COLORS.reset}\n`);
   process.stdout.write(`      ${COLORS.cyan}bun run setup --variables${COLORS.reset}\n\n`);
-  for (const spec of pending) {
-    process.stdout.write(`  • ${COLORS.bold}${spec.name}${COLORS.reset}\n`);
-    process.stdout.write(`    ${COLORS.dim}${spec.obtainHint ?? ''}${COLORS.reset}\n`);
+  const groups: Array<{ scope: 'core' | 'tooling' | 'project', title: string }> = [
+    { scope: 'core', title: 'Framework (behind a feature switch: Xray sync, Jira host)' },
+    { scope: 'tooling', title: 'Tooling (optional; may be provided elsewhere)' },
+    { scope: 'project', title: 'Project-under-test examples: rename or delete when you adapt the framework' },
+  ];
+  for (const group of groups) {
+    const inScope = pending.filter(spec => spec.scope === group.scope);
+    if (inScope.length === 0) { continue; }
+    process.stdout.write(`  ${COLORS.bold}${group.title}${COLORS.reset}\n`);
+    for (const spec of inScope) {
+      process.stdout.write(`  • ${COLORS.bold}${spec.name}${COLORS.reset}${spec.featureGate ? `${COLORS.dim} (only when ${spec.featureGate} is on)${COLORS.reset}` : ''}\n`);
+      process.stdout.write(`    ${COLORS.dim}${spec.obtainHint ?? ''}${COLORS.reset}\n`);
+    }
+    process.stdout.write('\n');
   }
-  process.stdout.write('\n');
+}
+
+/**
+ * Print how to connect the tools that live OUTSIDE `.env`: the MCP servers
+ * that run at harness level (connected once per machine, resolved by
+ * capability) and the CLIs that keep their own login. Guidance only: nothing
+ * here is prompted, written or verified by the installer.
+ */
+function printHarnessLevelGuidance(): void {
+  tui.section('Tools that authenticate outside .env (connect once per machine)');
+  process.stdout.write(`  ${COLORS.dim}These MCP servers are not in .mcp.json on purpose: a remote server whose only project-side content is an API key is the harness's business. Skills resolve them by capability.${COLORS.reset}\n`);
+  for (const mcp of HARNESS_LEVEL_MCPS) {
+    process.stdout.write(`  • ${COLORS.bold}${mcp.id}${COLORS.reset}${mcp.capability ? ` (${mcp.capability})` : ''}: ${mcp.purpose}\n`);
+  }
+  for (const host of ['claude', 'opencode', 'codex'] as const) {
+    process.stdout.write(`    ${COLORS.cyan}${host}${COLORS.reset}: ${HARNESS_LEVEL_HOWTO[host].how}\n`);
+    process.stdout.write(`      ${COLORS.dim}${HARNESS_LEVEL_HOWTO[host].where}${COLORS.reset}\n`);
+  }
+  process.stdout.write(`  ${COLORS.dim}CLIs keep their own session:${COLORS.reset}\n`);
+  for (const cli of CLI_LOGINS) {
+    process.stdout.write(`  • ${COLORS.bold}${cli.cli}${COLORS.reset}: ${COLORS.cyan}${cli.login}${COLORS.reset}\n`);
+    process.stdout.write(`    ${COLORS.dim}${cli.note}${COLORS.reset}\n`);
+  }
+  process.stdout.write(`  ${COLORS.dim}bun run setup:doctor reports which of these servers your user-level harness config already declares.${COLORS.reset}\n\n`);
+}
+
+/**
+ * OFFERED manifest vars with no value yet, by NAME. Mirrors the day-0 step's
+ * own test: `.env` or the process for an env-file var, the yaml resolver for the
+ * Atlassian host. Never returns a value.
+ */
+function missingCriticalVarNames(): string[] {
+  let envValues: Record<string, string> = {};
+  if (existsSync(ENV_PATH)) {
+    try { envValues = parseEnvFile(readFileSync(ENV_PATH, 'utf8')); }
+    catch { /* unreadable .env → treat all as empty */ }
+  }
+  return criticalVars().filter((spec) => {
+    if (valueSourceOf(spec) === 'atlassian-instance') {
+      try { resolveAtlassianInstance(); return false; }
+      catch { return true; }
+    }
+    return (envValues[spec.name] ?? process.env[spec.name] ?? '').trim().length === 0;
+  }).map(spec => spec.name);
 }
 
 function printClosingSummary(state: InstallState): void {
   const allSkillEntries = Object.entries(state.skills);
-  const gentleAiSkills = allSkillEntries.filter(([k]) => k.includes('::'));
+  const engramAgents = allSkillEntries.filter(([k]) => k.startsWith(`${ENGRAM_COMPONENT}::`));
   const projectCommunity = allSkillEntries.filter(([k]) => k.startsWith('community:project:'));
   const userCommunity = allSkillEntries.filter(([k]) => k.startsWith('community:global:'));
 
-  const gentleAiInstalled = gentleAiSkills.filter(([, s]) => s === 'installed').length;
+  const engramInstalled = engramAgents.filter(([, s]) => s === 'installed').length;
   const projectInstalled = projectCommunity.filter(([, s]) => s === 'installed').length;
   const userInstalled = userCommunity.filter(([, s]) => s === 'installed').length;
 
@@ -2520,7 +2900,7 @@ function printClosingSummary(state: InstallState): void {
   process.stdout.write(tui.table(
     ['Category', 'Installed', 'Total', 'Status'],
     [
-      ['gentle-ai skills', `${gentleAiInstalled}`, `${gentleAiSkills.length}`, statusFor(gentleAiInstalled, gentleAiSkills.length)],
+      ['Engram (per agent)', `${engramInstalled}`, `${engramAgents.length}`, statusFor(engramInstalled, engramAgents.length)],
       ['Project skills', `${projectInstalled}`, `${projectCommunity.length}`, statusFor(projectInstalled, projectCommunity.length)],
       ['User skills', `${userInstalled}`, `${userCommunity.length}`, statusFor(userInstalled, userCommunity.length)],
       ['MCPs configured', `${mcpConfigured}`, `${mcpTotal}`, `${statusFor(mcpConfigured, mcpTotal)}${mcpPlaceholder > 0 ? ` (${mcpPlaceholder} placeholder)` : ''}`],
@@ -2538,10 +2918,22 @@ function printClosingSummary(state: InstallState): void {
   const circled = ['⓪', '①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨'];
   let stepNum = 0;
 
-  if (state.pendingEnvVars.length > 0) {
+  // Non-interactive (an AI agent drove the install): nobody typed a credential,
+  // so the CRITICAL set is still empty too. Say exactly which keys the agent has
+  // to ask its human for, names only, instead of leaving it to infer them.
+  const askHuman = NON_INTERACTIVE ? [...new Set([...missingCriticalVarNames(), ...state.pendingEnvVars])] : [];
+
+  if (state.pendingEnvVars.length > 0 || askHuman.length > 0) {
     process.stdout.write(`${circled[stepNum]}  ${COLORS.bold}Fill missing env vars${COLORS.reset}  ${COLORS.yellow}(BLOCKS the agent from working with MCPs)${COLORS.reset}\n`);
-    process.stdout.write(`    ${COLORS.cyan}Edit .env → set: ${state.pendingEnvVars.join(', ')}${COLORS.reset}\n`);
-    process.stdout.write(`    ${COLORS.dim}Without these, MCP servers will 401/403 silently.${COLORS.reset}\n\n`);
+    if (askHuman.length > 0) {
+      process.stdout.write(`    ${COLORS.cyan}Ask the human for these ${askHuman.length} keys: ${askHuman.join(', ')}${COLORS.reset}\n`);
+      process.stdout.write(`    ${COLORS.dim}Then write them to .env (never paste a value into a chat or a commit).${COLORS.reset}\n`);
+    }
+    else {
+      process.stdout.write(`    ${COLORS.cyan}Edit .env → set: ${state.pendingEnvVars.join(', ')}${COLORS.reset}\n`);
+    }
+    process.stdout.write(`    ${COLORS.dim}Without these, MCP servers will 401/403 silently.${COLORS.reset}\n`);
+    process.stdout.write(`    ${COLORS.cyan}Then restart the agent session${COLORS.reset}  ${COLORS.dim}(MCP servers read credentials at startup, not later)${COLORS.reset}\n\n`);
     stepNum++;
   }
 
@@ -2581,10 +2973,10 @@ function printClosingSummary(state: InstallState): void {
   }
 
   process.stdout.write(`${circled[stepNum]}  ${COLORS.bold}Open the agent${COLORS.reset}\n`);
-  process.stdout.write(`    ${COLORS.cyan}bun claude${COLORS.reset}       ${COLORS.dim}(dotenv-cli loads .env)${COLORS.reset}\n`);
-  process.stdout.write(`    ${COLORS.cyan}bun opencode${COLORS.reset}     ${COLORS.dim}(dotenv-cli loads .env)${COLORS.reset}\n`);
-  process.stdout.write(`    ${COLORS.cyan}bun codex${COLORS.reset}        ${COLORS.dim}(CLI; Codex Desktop opens this same repository)${COLORS.reset}\n`);
-  process.stdout.write(`    ${COLORS.dim}Or use the executable directly if direnv autoload is set up. Codex Desktop needs repository trust before hooks run.${COLORS.reset}\n\n`);
+  process.stdout.write(`    ${COLORS.cyan}claude${COLORS.reset}           ${COLORS.dim}(or Claude Desktop)${COLORS.reset}\n`);
+  process.stdout.write(`    ${COLORS.cyan}opencode${COLORS.reset}         ${COLORS.dim}(or the OpenCode desktop app)${COLORS.reset}\n`);
+  process.stdout.write(`    ${COLORS.cyan}codex${COLORS.reset}            ${COLORS.dim}(CLI; Codex Desktop opens this same repository)${COLORS.reset}\n`);
+  process.stdout.write(`    ${COLORS.dim}No wrapper: every MCP server loads .env itself, so no value reaches the agent's shell. Codex Desktop needs repository trust before hooks run.${COLORS.reset}\n\n`);
   stepNum++;
 
   process.stdout.write(`${circled[stepNum]}  ${COLORS.bold}Tour the stack${COLORS.reset}\n`);
@@ -2628,11 +3020,12 @@ function printClosingSummary(state: InstallState): void {
   process.stdout.write('    Then run:  bun run jira:sync-fields && bun run jira:check\n\n');
   process.stdout.write('  • Bootstrap KATA manifest once:  bun run kata:manifest\n');
   process.stdout.write('    Validate:                       bun run kata:manifest:check\n\n');
-  process.stdout.write('  • Adapt KATA to your stack:      /adapt-framework\n');
+  process.stdout.write('  • Adapt KATA to your stack:      /test-framework-adaptation\n');
   process.stdout.write('    (removes example tests + business maps; wires fixtures to your stack)\n\n');
 
-  // Next steps — non-critical vars still empty in .env (manifest-driven).
+  // Next steps — optional vars still empty in .env, by scope (manifest-driven).
   printNonCriticalNextSteps();
+  printHarnessLevelGuidance();
 
   // QA workflow quick reference
   tui.section('QA workflow quick reference');
@@ -2666,25 +3059,6 @@ function printClosingSummary(state: InstallState): void {
   // Optional UX upgrades
   tui.section('OPTIONAL — install when you have time');
 
-  process.stdout.write('→  caveman — token compression skill (recommended)\n');
-  process.stdout.write(`   ${COLORS.dim}Cuts ~65-75% output tokens. Levels: lite | full (default) | ultra | wenyan.${COLORS.reset}\n`);
-  process.stdout.write(`   ${COLORS.dim}Stop with: "normal mode" / "habla normal".${COLORS.reset}\n`);
-  // `--no-hooks` is deliberate. The installer defaults to `--all`, which installs
-  // the Claude Code plugin AND writes a second copy of the same two hooks into
-  // ~/.claude/settings.json — both fire every turn, injecting caveman twice per
-  // prompt. The flag keeps the plugin (it registers those hooks in its own
-  // plugin.json), the multi-agent coverage this repo needs for OpenCode, and the
-  // caveman-shrink MCP proxy. On Windows `irm | iex` cannot receive arguments
-  // (caveman #565), so we call the Node installer the script delegates to anyway.
-  if (process.platform === 'win32') {
-    process.stdout.write('   npx -y github:JuliusBrussee/caveman --no-hooks\n');
-  }
-  else {
-    process.stdout.write('   curl -fsSL https://raw.githubusercontent.com/JuliusBrussee/caveman/main/install.sh | bash -s -- --no-hooks\n');
-  }
-  process.stdout.write(`   ${COLORS.dim}--no-hooks avoids a duplicate hook registration — see INSTALLER.md.${COLORS.reset}\n`);
-  process.stdout.write(`   ${COLORS.dim}Docs: https://github.com/JuliusBrussee/caveman${COLORS.reset}\n\n`);
-
   process.stdout.write('→  ccstatusline — Claude Code statusline TUI configurator (cosmetic)\n');
   process.stdout.write(`   ${COLORS.dim}Customize the bottom statusline (model, tokens, git branch, usage, etc.).${COLORS.reset}\n`);
   process.stdout.write(`   ${COLORS.yellow}Run in a SEPARATE terminal with NO agent active${COLORS.reset} ${COLORS.dim}— concurrent TUIs fight over stdin.${COLORS.reset}\n`);
@@ -2695,11 +3069,11 @@ function printClosingSummary(state: InstallState): void {
   process.stdout.write(`   ${COLORS.cyan}/plugin install warp@claude-code-warp${COLORS.reset}\n`);
   process.stdout.write(`   ${COLORS.dim}Docs: https://docs.warp.dev/agent-platform/cli-agents/claude-code/${COLORS.reset}\n\n`);
 
-  process.stdout.write('→  OpenCode Warp plugin: already wired in opencode.jsonc via the "plugin" field.\n');
+  process.stdout.write('→  OpenCode Warp plugin: personal, so add it to your global ~/.config/opencode/opencode.json (OpenCode 1; Warp installs it itself).\n');
   process.stdout.write(`   ${COLORS.dim}Docs: https://docs.warp.dev/agent-platform/cli-agents/opencode/${COLORS.reset}\n\n`);
 
   // AI personality
-  process.stdout.write(`→  Curious who you're talking to? Read ${COLORS.cyan}docs/ai-personality.md${COLORS.reset}\n\n`);
+  process.stdout.write(`→  Curious who you're talking to? Run ${COLORS.cyan}bun run docs -- --page core/personalidad.html${COLORS.reset}\n\n`);
 
   // Reference
   tui.section('REFERENCE');
@@ -2854,13 +3228,14 @@ async function main(): Promise<void> {
       log.warn('No agents selected — nothing to sync.');
       process.exit(0);
     }
+    await recordHarnessSelection(agents);
     const state = buildInitialState(await loadPriorState());
     state.agents = agents;
     const syncForceKeys = new Set<string>();
     await installCommunitySkills(agents, state, 'project', syncForceKeys);
     await installCommunitySkills(agents, state, 'global', syncForceKeys);
     const compatibility = repairRepositoryCompatibility();
-    log.success(`Repository compatibility ready (${compatibility.wrappersWritten} wrapper updates; Claude alias ${compatibility.alias.status}).`);
+    log.success(`Repository compatibility ready (Claude alias ${compatibility.alias?.status ?? 'not used'}${compatibility.shadowingCommandsMoved.length > 0 ? `; moved ${compatibility.shadowingCommandsMoved.join(', ')} to ${SHADOWING_COMMANDS_BACKUP_DIR}/ because each shadowed a skill` : ''}).`);
     await writeInstallState(state);
     log.success(`Community skills synced to: ${agents.join(', ')}.`);
     process.exit(0);
@@ -2891,21 +3266,24 @@ async function main(): Promise<void> {
   tui.section('Step 1: Verifying repo root');
   await verifyRepoRoot();
 
-  tui.section('Step 2: Detecting gentle-ai');
-  const gentleAi = detectGentleAi();
-  if (gentleAi.found && gentleAi.version) {
-    if (gentleAi.compatible) {
-      log.success(`gentle-ai ${gentleAi.version} detected (>= ${MIN_GENTLE_AI_VERSION.join('.')}).`);
+  tui.section('Step 2: Detecting engram');
+  const engram = detectEngram();
+  if (engram.found && engram.version) {
+    if (engram.compatible) {
+      log.success(`engram ${engram.version} detected (>= ${MIN_ENGRAM_VERSION.join('.')}).`);
     }
     else {
-      log.warn(`gentle-ai ${gentleAi.version} is older than required ${MIN_GENTLE_AI_VERSION.join('.')}. Upgrade with: gentle-ai update`);
+      log.warn(`engram ${engram.version} is older than required ${MIN_ENGRAM_VERSION.join('.')}. Upgrade with: brew upgrade engram (or re-run the go install command in INSTALLER.md).`);
     }
   }
-  else if (gentleAi.status === 'skipped') {
-    log.info('gentle-ai detection skipped via INSTALL_SKIP_GENTLE_AI=1.');
+  else if (engram.status === 'skipped') {
+    log.info('engram detection skipped via INSTALL_SKIP_ENGRAM=1.');
+  }
+  else if (engram.found) {
+    log.warn('engram found but `engram version` reported no release version (a local or `go install` build?).');
   }
   else {
-    log.info('gentle-ai not found.');
+    log.info('engram not found.');
   }
 
   const prior = await loadPriorState();
@@ -2913,40 +3291,40 @@ async function main(): Promise<void> {
   // Apply --force: clear all step timestamps
   if (FORCE_ALL) { state.steps = {}; }
   state.installedAt = new Date().toISOString();
-  state.gentleAi = {
-    status: gentleAi.status,
-    version: gentleAi.version,
+  state.engram = {
+    status: engram.status,
+    version: engram.version,
     checkedAt: new Date().toISOString(),
   };
 
-  tui.section('Step 3: gentle-ai install / skip decision');
+  tui.section('Step 3: engram install / skip decision');
   let runSkillInstall = false;
-  if (gentleAi.status === 'installed') {
+  if (engram.status === 'installed') {
     runSkillInstall = true;
   }
-  else if (gentleAi.status === 'incompatible') {
+  else if (engram.status === 'incompatible') {
     const contRaw = await tui.confirm({
-      message: 'gentle-ai is installed but version is older than required. Try anyway?',
+      message: 'engram is installed but its version could not be confirmed as compatible. Try anyway?',
       initialValue: false,
     });
     if (tui.isCancel(contRaw)) { throw Object.assign(new Error('Aborted by user.'), { name: 'ExitPromptError' }); }
     runSkillInstall = contRaw;
   }
-  else if (gentleAi.status === 'skipped') {
+  else if (engram.status === 'skipped') {
     log.dim('  Skipped.');
   }
   else {
     if (NON_INTERACTIVE) {
-      log.warn('gentle-ai missing in non-interactive mode; treating as skipped.');
-      state.gentleAi.status = 'skipped';
+      log.warn('engram missing in non-interactive mode; treating as skipped.');
+      state.engram.status = 'skipped';
     }
     else {
-      const decision = await handleMissingGentleAi();
+      const decision = await handleMissingEngram();
       if (decision === 'show-and-exit') {
         await writeInstallState(state);
         process.exit(0);
       }
-      state.gentleAi.status = 'skipped';
+      state.engram.status = 'skipped';
     }
     runSkillInstall = false;
   }
@@ -2962,6 +3340,7 @@ async function main(): Promise<void> {
     await writeInstallState(state);
     process.exit(0);
   }
+  await recordHarnessSelection(agents);
 
   // ── PHASE 2 — INSTALLATION ───────────────────────────────────────────────
   tui.phaseHeader(2, 'INSTALLATION');
@@ -2972,12 +3351,12 @@ async function main(): Promise<void> {
   tui.section('Step 6: Installing Playwright browsers');
   await runPlaywrightInstall(state, forceKeys);
 
-  tui.section('Step 8: Installing engram via gentle-ai (minimal preset)');
+  tui.section('Step 8: Wiring Engram memory (engram setup)');
   if (runSkillInstall) {
-    await installSkillsViaGentleAi(agents, state, forceKeys);
+    await installEngramPerAgent(agents, state, forceKeys);
   }
   else {
-    log.dim('  No compatible gentle-ai — skipping engram install.');
+    log.dim('  No compatible engram binary — skipping Engram wiring.');
     for (const agent of agents) {
       const k = `${ENGRAM_COMPONENT}::${agent}`;
       if (!state.skills[k]) { state.skills[k] = 'skipped'; }
@@ -3000,14 +3379,15 @@ async function main(): Promise<void> {
   }
 
   const compatibility = repairRepositoryCompatibility();
-  log.success(`Repository compatibility ready (${compatibility.wrappersWritten} wrapper updates; Claude alias ${compatibility.alias.status}).`);
+  log.success(`Repository compatibility ready (Claude alias ${compatibility.alias?.status ?? 'not used'}${compatibility.shadowingCommandsMoved.length > 0 ? `; moved ${compatibility.shadowingCommandsMoved.join(', ')} to ${SHADOWING_COMMANDS_BACKUP_DIR}/ because each shadowed a skill` : ''}).`);
 
   // ── PHASE 3 — CONFIGURATION ──────────────────────────────────────────────
   tui.phaseHeader(3, 'CONFIGURATION');
 
   tui.section('Step 10: Wiring .env for MCP servers');
+  await cleanRetiredEnvKeys();
+  await offerSecretManager();
   await configureMcps(agents, state);
-  await offerDirenvAutoload();
 
   tui.section('Step 10b: Day-0 credentials (Atlassian, Resend, test users)');
   await configureDayZeroCredentials(state);
@@ -3032,9 +3412,50 @@ async function main(): Promise<void> {
   await runInitialConfigurationPhase(state);
   await writeInstallState(state);
 
+  // Retire the plaintext MCP credential copies an older install generated
+  // (`.claude/settings.local.json` env block, `.auth/opencode/`). LAST, because
+  // it compares them with the `.env` every step above may have written to. MCP
+  // servers read `.env` themselves now, through the `.env` loader in the three
+  // MCP configs (ADR-0011), so a fresh clone has nothing to retire.
+  //
+  // DYNAMIC import on purpose: `cli/lib/harness-env.ts` imports from THIS file,
+  // and a static import here would close that cycle.
+  await retireHarnessCopies();
+
   // Closing summary
   tui.section('Installation summary');
   printClosingSummary(state);
+}
+
+/**
+ * Retire the stale plaintext MCP credential copies. Never fatal: a failure
+ * leaves the repo exactly as it was and the installer still finishes, because
+ * `bun run setup:doctor` reports the same copies and `bun run harness:env`
+ * retires them. Prints variable NAMES only, never a value.
+ */
+async function retireHarnessCopies(): Promise<void> {
+  tui.section('Step 15: Plaintext MCP credential copies');
+  try {
+    const { retire } = await import('./lib/harness-env.ts');
+    const result = retire();
+    if (result.errors.length > 0) {
+      log.warn(`Copies NOT retired, an MCP config could not be parsed: ${result.errors.join('; ')}`);
+      return;
+    }
+    if (!result.changed) {
+      log.success('None on disk: every MCP server reads .env itself through the .env loader.');
+      return;
+    }
+    const surfaces = [...result.claude, ...(result.opencode === null ? [] : [result.opencode])];
+    log.success(`Retired: ${surfaces.flatMap(s => [...s.removed, ...s.backedUp]).join(', ')}`);
+    if (result.backupDirs.length > 0) {
+      log.warn(`.env did not reproduce some of them; they wait in ${result.backupDirs.join(', ')}. Put the right value in .env yourself, then delete that directory.`);
+    }
+  }
+  catch (err) {
+    log.warn(`Could not check for plaintext MCP credential copies: ${(err as Error).message}`);
+    process.stdout.write('  `bun run setup:doctor` reports them; `bun run harness:env` retires them.\n');
+  }
 }
 
 if (import.meta.main) {

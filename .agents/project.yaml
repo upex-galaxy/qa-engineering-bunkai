@@ -49,6 +49,29 @@ testing:
   # `.agents/skills/sprint-testing/SKILL.md` §"Which stage creates the TCs".
   # Read as {{TC_CREATION_STAGE}}; unset or unrecognized is treated as `auto`.
   tc_creation_stage: auto
+  # NEW in 1.0.0 — added by `bun run up`, unset. See .agents/README.md.
+  # Agentic browser sessions (`/playwright-cli`). Canon:
+  # .agents/skills/agentic-qa-core/references/browser-sessions.md
+  browser:
+    # Agentic Pair Testing: the human and the AI test together in the human's own
+    # running Chrome (`playwright-cli attach`), instead of the AI's own session.
+    # null  = not chosen yet: the first agentic browser session presents both modes
+    #         and saves the answer here (true | false), once.
+    # true  = pair testing is the default mode for agentic browser sessions.
+    # false = dedicated sessions by default; pair testing only on explicit request,
+    #         after one confirmation. Unattended runs never pair, whatever the value.
+    # Read directly by skills (not a {{VAR}} token).
+    pair_mode: null
+
+# NEW in 1.0.0 — added by `bun run up`, unset. See .agents/README.md.
+# Host harnesses this project uses (ADR-0012), any of: claude, opencode, codex.
+# Every compatibility gate (agents:compat:check, setup:doctor, the installer, `bun run up`)
+# checks only these; the files of a harness left out may be deleted. null = detect from
+# the files present (a harness is in use while ANY of its files exists). `bun run setup`
+# adds the agents you select (it never removes one); edit the list to drop one.
+# The boilerplate itself always checks all three, whatever this says.
+# Read directly by cli/lib/harness-selection.ts (not a {{VAR}} token) -> skipped by vars:check.
+harnesses: null # e.g. [claude]
 
 qa:
   formal_blocked_gate: true # When true and the substrate exposes a `blocked` story status, FAILED stories dispatch `defect_reported` (in_test -> blocked). When false (or no `blocked` slug), the skill leaves the story in `in_test` with the linked bug — non-strict fallback. See sprint-testing/references/sprint-orchestration.md Briefing 4 Step 5.
@@ -84,6 +107,28 @@ qa:
     defect_epic:
       name: QA Defect Management # convention name; the `QA ` prefix marks a process epic, not product
       key: BK-183 # discovered via JQL during BK-260 sprint-testing Stage 1 (2026-08-27)
+  # NEW in 1.0.0 — added by `bun run up`, unset. See .agents/README.md.
+  # How THIS project runs the IQL. Read by the shipped `iql-context` skill (the methodology
+  # index) and, through it, by every workflow skill that asks "which stages does this project
+  # run and how strict are its gates". The skill body syncs verbatim from upstream; these
+  # VALUES are the first of its two adaptation seams (the second is the project-owned prose
+  # overlay `.agents/skills/iql-context/references/project-overrides.md`, delivered once,
+  # never overwritten). Read directly by skills (not {{VAR}} tokens) → skipped by vars:check.
+  methodology:
+    # Stages this project actually runs, by NAME (never by number), from the ladder in
+    # .agents/skills/agentic-qa-core/references/stage-gates.md. Remove a stage the team has
+    # consciously not adopted; its owning skill then declines the work with a stated note.
+    stages: [shift-left, planning, execution, reporting, documentation, automation, regression]
+    # Gate strictness: `strict` runs every DoD as written; `light` allows the collapsible gates
+    # named on the official methodology site (ATP item, feature Test Set promotion, ROI
+    # verifier, FLAKY history), one sprint at a time, written in the STP, with a debt item per
+    # collapse. The never-collapsed gates (ATR Test Environment, human OK before filing a bug,
+    # plan approval before automation code, human merge approval) hold in both.
+    gate_mode: strict
+    # Execution profile the agentic contract assumes: `agentic` (an agent executes the skills
+    # under the guardrails and the human decides at the declared points) or `manual` (a person
+    # runs each stage; the human gates still apply). Documentation only: no skill branches on it.
+    execution_profile: agentic
 
 # Git workflow for THIS project — the SOURCE OF TRUTH read by the git-flow-master skill
 # before any git/gh operation. Ships `null` (template): on the first git intent git-flow-master
@@ -118,6 +163,12 @@ git_strategy:
     direct_push_to_protected: allowed # forbidden | confirm | allowed (solo-main = allowed)
     admin_bypass: true # normal flow here: the admin push credential auto-bypasses the ProtectPublic ruleset on every push (no flag needed). "Bypassed rule violations" is expected — never open a PR.
     require_pr_reviews: 0 # null | 0 | N — min approvals before merge to a protected branch (informational)
+    # NEW in 1.0.0 — added by `bun run up`, unset. See .agents/README.md.
+    # Host divergences that are ACCEPTED, not drift. Each `field` names a `git:policy verify`
+    # finding verbatim (`<branch>.<policy_field>`); verify moves matching findings from DRIFT
+    # to ACCEPTED (exit 0) and warns when an entry no longer matches anything (stale entry).
+    # `apply` preserves the host's side for accepted fields instead of deriving its own rule.
+    accepted_divergences: []
   branch_prefixes:
     precedence: [feat, fix, refactor, test, docs, chore]
     naming_with_key: '{prefix}/{ISSUE-KEY}-{kebab-slug}'
@@ -128,6 +179,46 @@ git_strategy:
     policy_verified: 2026-09-15 # YYYY-MM-DD of the last `bun run git:policy verify`. null = never reconciled against the host
     policy_source: verified # verified | accepted | declared. `verified` = host matches the yaml exactly; `accepted` = every divergence is formally listed in policy.accepted_divergences (stamped by `git:policy verify --stamp`); `declared` = never reconciled, or an unaccepted drift is open.
     strategy_source: chosen # inherited | chosen. Strategy Setup ran on 2026-06-20 (see `created` above) and produced this solo-main block — a real decision, not the shipped default.
+
+# NEW in 1.0.0 — added by `bun run up`, unset. See .agents/README.md.
+# Defaults for multi-session orchestration (supervised worker fleets via Orca —
+# see the orca-orchestration skill). Owned by that skill; read directly, NOT
+# {{VAR}} template references in the section-prefixed sense (leaves resolve as
+# flat {{VAR}} names like every other top-level section — see .agents/README.md
+# §"orchestration" for the exact declared names). An explicit user instruction
+# in the conductor session ALWAYS overrides these defaults for that run; they
+# apply only when the user says nothing.
+orchestration:
+  max_workers: 4 # concurrent workers per round
+  default_agent: claude # claude | codex | opencode
+  default_model: '' # full provider model id; empty = the harness default
+  default_effort: high # harness effort level when supported
+  # WHICH orchestrator, named here instead of hardcoded in a skill. Empty
+  # `orchestrator_cli` = no orchestrator on this machine: every workflow skill
+  # falls back to the pasted-launch-line path and says NOTHING about it.
+  orchestrator_name: Orca # the application the operator sees
+  orchestrator_cli: orca # the binary on PATH (Linux outside a managed terminal: orca-ide)
+  # THE TWO VERBS ARE NOT INTERCHANGEABLE, and this is the pair that the
+  # channel-discipline doctrine exists to keep apart.
+  # `message_verb` carries every message BETWEEN sessions. Byte-intact.
+  # `terminal_verb` DRIVES a terminal: commands, CLI calls, harness
+  #   slash-commands, keystrokes. It truncates a long payload silently, keeps
+  #   only the TAIL, and still reports success — so the damage reads like a
+  #   typo rather than a missing message.
+  # The test: if a HUMAN would read it, it does not go through `terminal_verb`.
+  # If a shell or a TUI would EXECUTE it, that is what the verb is for.
+  # One structural exception: a supervised worker's FIRST prompt must go
+  # through `terminal_verb`, because the native launch has no argv. Keep it
+  # short and pointing at a file.
+  message_verb: orca orchestration # session-to-session messages ONLY
+  terminal_verb: orca terminal # commands and keystrokes ONLY
+  # Vendor skills the orchestrator installs at USER level. Loaded ALONGSIDE
+  # this repo's own `orca-orchestration` skill, never instead of it: the repo
+  # skill owns WHEN and WHAT, these own the command grammar. They are small
+  # enough to load rather than fetch on demand. Empty list = none installed;
+  # the repo skill then asks the binary for its grammar.
+  # Measurements and dates: .context/ADR/ADR-0006-forensic-measurements-ledger.md.
+  orchestrator_skills: [orca-cli, orchestration]
 
 # Files `bun run up` must keep as THIS project's own. Read by `cli/update-boilerplate.ts`
 # at the start of every run and merged into the protected watchlist (AGENTS.md,
@@ -142,6 +233,36 @@ git_strategy:
 # nested list is skipped by vars:check like git_strategy and qa.qa_epics.
 updater:
   protected_paths: [scripts/lint-vars.ts] # e.g. [scripts/lint-vars.ts, .agents/skills/acli/SKILL.md]
+  # NEW in 1.0.0 — added by `bun run up`, unset. See .agents/README.md.
+  # Upstream deny rules this project does NOT want appended to `.claude/settings.json`.
+  # `bun run up` appends every upstream `permissions.deny` entry the project lacks (after a
+  # backup; nothing removed or reordered); an entry listed here, by its exact text, is left
+  # out and reported as declined. It never removes an entry the file already holds. Not a
+  # list of strings = ignored with a warning (fails toward MORE denies). Read directly by
+  # the updater (`readDeclinedDenies` in cli/lib/updater-settings.ts), skipped by vars:check.
+  declined_denies: [] # e.g. ['Bash(env)']
+  # NEW in 1.0.0 — added by `bun run up`, unset. See .agents/README.md.
+  # Upstream hook commands this project does NOT want appended to `.claude/settings.json`.
+  # `bun run up` appends every upstream hook command the project lacks under the same event
+  # and matcher, as a NEW group at the end of that event's list (after a backup; the
+  # project's own groups are never edited, reordered or removed); a command listed here, by
+  # its exact text, is left out and reported as declined, in every event that runs it. A
+  # hook `agents:compat:check` requires stays required: declining one keeps that check red.
+  # Not a list of strings = ignored with a warning (fails toward MORE hooks). Read directly
+  # by the updater (`readDeclinedHooks` in cli/lib/updater-settings.ts), skipped by vars:check.
+  declined_hooks: [] # e.g. ['node "$CLAUDE_PROJECT_DIR/.agents/hooks/doc-contracts.mjs"']
+
+# NEW in 1.0.0 — added by `bun run up`, unset. See .agents/README.md.
+# Where SECRET values come from. `local` (the default) = .env / .env.local.
+# A secret manager is the ADVANCED option (ADR-0010): `bun run setup` writes the
+# committed overlay .env.provider.schema (references only, never values).
+# Read directly by the installer; not a {{VAR}} source.
+secrets:
+  provider: local # local | 1password
+  onepassword:
+    vault: null # vault the op:// references point at (e.g. myproject-dev; Private on a personal plan)
+    account: null # sign-in shorthand from `op account list`; null = the CLI default account
+    auth: app # app (desktop app locally, service account in CI) | service-account (token only)
 
 # Per-environment config. Add/remove environments freely (production, dev, qa, uat, etc.).
 # Each environment must define ALL four keys: web_url, api_url, db_mcp, api_mcp.

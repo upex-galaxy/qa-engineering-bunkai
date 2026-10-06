@@ -215,3 +215,22 @@ dbhub.local.toml
 
 # ----- 2026-09-08 (sync) -----
 .template/last-apply.json
+
+# ----- 2026-10-06 (sync) -----
+.playwright/profiles/
+.playwright-cli/
+storage-state-*.json
+!.env.schema
+!.env.core.schema
+!.env.provider.schema
+env.d.ts
+.template/doctrine-ledger.json
+.context/*
+!.context/README.md
+!.context/project-config.md
+!.context/ADR/
+!.context/regression-history/
+!.context/reports/
+!.context/PBI/
+.agents/skills/skill-creator/
+.agents/skills/diagram-design/

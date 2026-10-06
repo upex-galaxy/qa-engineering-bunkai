@@ -421,6 +421,19 @@ function printReport(rows: Map<string, VarReportRow>): void {
 }
 
 // ----------------------------------------------------------------------------
+// MCP servers — restart notice after `.env` changed
+// ----------------------------------------------------------------------------
+
+/**
+ * Every MCP server reads `.env` itself through the `.env` loader (ADR-0011),
+ * but only when the harness spawns it, so a value written here reaches a
+ * running session after a restart. No file is derived from `.env` any more.
+ */
+function noticeMcpRestart(): void {
+  tui.log.info('Restart the agent session: MCP servers read .env when the harness spawns them, not later.');
+}
+
+// ----------------------------------------------------------------------------
 // D6 — Xray / Atlassian CI wiring notice
 // ----------------------------------------------------------------------------
 
@@ -510,7 +523,7 @@ async function promptVarsInto(
 }
 
 /**
- * Prompt the CRITICAL set (manifest `critical: true`) into `.env`. Thin wrapper
+ * Prompt the OFFERED set (manifest `critical: true`) into `.env`. Thin wrapper
  * over {@link promptVarsInto}.
  */
 async function runCriticalSet(
@@ -531,7 +544,7 @@ type MenuChoice = 'walk' | 'critical' | 'remote' | 'everything' | 'leave';
  *   (a) Walk — set EVERY local var one by one (Enter skips; overwrite-confirm on
  *       already-set). The flag-free human path; `--variables-local` is now purely
  *       a scripting alias.
- *   (b) Set / reset the CRITICAL variables (the 5 project-independent creds).
+ *   (b) Set / reset the OFFERED variables (manifest `critical: true`; skip is fine).
  *   (c) Push local .env → GitHub Actions secrets.
  *   (d) Everything (critical then push) / leave as-is.
  * Returns the rows map to print, plus the remote outcome for the closing notice.
@@ -543,7 +556,7 @@ async function runMenu(opts: VariablesFlowOptions): Promise<void> {
     message: 'What do you want to do?',
     options: [
       { label: 'Set variables one by one (walk all local vars)', value: 'walk' as const },
-      { label: 'Set / reset the critical variables (Atlassian, Resend, Tavily)', value: 'critical' as const },
+      { label: `Set / reset the offered variables (${criticalVars().map(s => s.name).join(', ')})`, value: 'critical' as const },
       { label: 'Push local .env → GitHub Actions secrets', value: 'remote' as const },
       { label: 'Everything (set critical, then push remote)', value: 'everything' as const },
       { label: 'Leave as-is (exit)', value: 'leave' as const },
@@ -586,6 +599,11 @@ async function runMenu(opts: VariablesFlowOptions): Promise<void> {
 
   if ((choice === 'remote' || choice === 'everything') && !remoteOutcome.blocked) {
     maybeNoticeXrayAtlassian(remoteOutcome.setNames);
+  }
+
+  // The menu never runs dry: every branch that reached here may have written `.env`.
+  if (choice !== 'remote') {
+    noticeMcpRestart();
   }
 }
 
@@ -659,5 +677,11 @@ export async function runVariablesFlow(opts: VariablesFlowOptions): Promise<void
 
   if (doRemote && !remoteOutcome.blocked) {
     maybeNoticeXrayAtlassian(remoteOutcome.setNames);
+  }
+
+  // Only after a real local write: a dry run touched nothing, and a
+  // remote-only run never opened `.env` for writing.
+  if (doLocal && !opts.dryRun) {
+    noticeMcpRestart();
   }
 }

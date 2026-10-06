@@ -15,9 +15,9 @@
  *  - skills the cross-harness migration archived because `.agents/skills/`
  *    already owned the name (this run's, plus any archive dir entry that has
  *    not been nudged yet; one marker per skill under `.template/upstream-sha/`);
- *  - command wrappers no manifest produced (upstream manifest, plus the
- *    optional project overlay `command-aliases.project.json`), ONE row per
- *    path whether the compat check named it or the disk scan found it;
+ *  - the retired command-alias overlay when a project still has one (one
+ *    informational row), and every project command the compat hook moved
+ *    aside because it carried a skill's name (one informational row each);
  *  - components held back this run, with their lock commits;
  *  - `.env` keys upstream documents and the project lacks;
  *  - the `git_strategy` provenance stamp in `.agents/project.yaml`.
@@ -28,10 +28,15 @@
  * A `merge` on a watched file always says what to port and what to keep (the
  * upstream additions vs the project-only keys or sections); a structural
  * (identity) file compares keys only and fires, labelled `informational`, for
- * upstream additions alone.
+ * upstream additions alone. Every row also says which copy is on disk now
+ * (`kept` / `overwritten`), a kept file whose upstream hunk is a PREREQUISITE
+ * for another file of the same release blocks and says so
+ * (`PATH_PREREQUISITES`), and a dry-run marks the rows the apply step resolves
+ * by itself.
  */
 
 import type { CompatibilityErrorGroup } from './agent-compatibility.ts';
+import type { MapStatus } from './context-maps.ts';
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -39,13 +44,18 @@ import * as path from 'node:path';
 import { parse as parseYaml } from 'yaml';
 
 import { stripJsonComments } from './agent-compatibility-contracts.ts';
-import { COMMAND_ALIAS_MANIFEST, COMMAND_ALIAS_PROJECT_MANIFEST, compatibilityErrorGroup, undeclaredCommandWrappers } from './agent-compatibility.ts';
+import { compatibilityErrorGroup, HARNESS_COMMAND_DIRS, RETIRED_COMMAND_ALIAS_OVERLAY, SHADOWING_COMMANDS_BACKUP_DIR } from './agent-compatibility.ts';
+import { hasDeepWalk, walkGovernedFile } from './agents-schema.ts';
+import { contextMapAdvice, contextMapStatuses, mapRelPath } from './context-maps.ts';
+import { HARNESS_LEVEL_MCPS } from './harness-level-mcps.ts';
+import { declaredHarnesses } from './harness-selection.ts';
+import { CLAUDE_SETTINGS_FILE, DECLINED_DENIES_KEY, DECLINED_HOOKS_KEY, OPENCODE_SETTINGS_FILE, opencodeDenyGap } from './updater-settings';
 
 // ============================================================================
 // TYPES
 // ============================================================================
 
-export type ParitySurface = 'instructions' | 'skills' | 'commands' | 'hooks' | 'mcp' | 'env' | 'components' | 'package' | 'git' | 'gates';
+export type ParitySurface = 'instructions' | 'skills' | 'hooks' | 'mcp' | 'env' | 'components' | 'package' | 'git' | 'gates';
 
 /**
  * `take upstream` is reserved for content the project lacks entirely. A row
@@ -54,7 +64,7 @@ export type ParitySurface = 'instructions' | 'skills' | 'commands' | 'hooks' | '
  * there would delete it.
  */
 export type ParitySuggestion
-  = 'keep project' | 'take upstream' | 'merge' | 'add to overlay' | 'run agents:compat' | 'decide';
+  = 'keep project' | 'take upstream' | 'merge' | 'run agents:compat' | 'decide';
 
 export interface ParityFinding {
   id: number
@@ -63,13 +73,36 @@ export interface ParityFinding {
   /** Concrete, scannable: headings, keys, server ids, counts. Never a diff. */
   evidence: string
   suggested: ParitySuggestion
-  /** Blocking = a failed compatibility contract. Watched-file drift never blocks. */
+  /**
+   * Blocking = a failed compatibility contract, or a kept file whose upstream
+   * hunk is a prerequisite for another file of the same release
+   * (`PATH_PREREQUISITES`). Ordinary watched-file drift never blocks.
+   */
   blocking: boolean
+  /**
+   * Which copy is on disk right now: `kept` = the project's (a protected or
+   * project-declared path, never overwritten), `overwritten` = upstream's (the
+   * project's version is in the named backup). Absent when the row is not a
+   * contest between two copies of the same file (env keys, gates, held-back
+   * components, a retired overlay).
+   */
+  side?: 'kept' | 'overwritten'
   /** Full paired diff, written to the saved file under the finding's heading. */
   diff?: string
   /** Plain-text detail (gate output, the two package.json values), written to the saved file when there is no diff. */
   detail?: string
   /** A follow-up the saved file repeats under the row (how to keep a merge on the next sync). */
+  note?: string
+}
+
+/** A row about the instruction sections (`makeInstructionsHook`): the `agent-project.md` stub, a pre-split AGENTS.md. Never blocking. */
+export interface InstructionRowInput {
+  path: string
+  evidence: string
+  suggested: ParitySuggestion
+  /** Set when the row is a contest between two copies (`ParityFinding.side`). */
+  side?: 'kept' | 'overwritten'
+  /** Repeated under the row in the saved file (the old-heading map). */
   note?: string
 }
 
@@ -128,6 +161,8 @@ export interface ParityInput {
   drift: ParityDriftInput[]
   /** `checkAgentCompatibility().errors`. */
   compatErrors: string[]
+  /** `checkAgentCompatibility().warnings`: one informational row each, never blocking. */
+  compatWarnings?: string[]
   /** Skills to report as archived (names only); see `archivedSkillsToReport`. */
   archivedSkills: string[]
   /** Directory holding the archived skills (`<MIGRATION_BACKUP_DIR>/skills`). */
@@ -135,14 +170,44 @@ export interface ParityInput {
   heldBack: HeldBackComponent[]
   /** Keys upstream `.env.example` documents that the project's `.env` / `.env.example` lack. */
   envNewKeys: string[]
+  /** Permission allow-list entries the additive merge added to `.claude/settings.json`. */
+  allowListAdded?: string[]
+  /** `permissions.deny` entries the same merge appended this run. */
+  denyListAdded?: string[]
+  /** Upstream deny entries the project lacks and declined through `updater.declined_denies`. */
+  denyListDeclined?: string[]
+  /** Hook commands the additive hook merge appended to `.claude/settings.json` (`formatHookCommand`). */
+  hooksAdded?: string[]
+  /** Upstream hook commands the project lacks and declined through `updater.declined_hooks`. */
+  hooksDeclined?: string[]
+  /** Upstream hook commands not appended because the script they run is missing in the project. */
+  hooksSkipped?: string[]
+  /** Keys `.claude/settings.json` repeated, folded into one list by the hook merge. */
+  settingsDuplicatesFolded?: string[]
+  /** Evidence for the unresolved-doctrine ledger row (`runDoctrineLedger`), when there is debt. */
+  doctrineDebt?: string | null
+  /** The file that row is about. Defaults to `AGENTS.md` (`DOCTRINE_FILE`). */
+  doctrineFile?: string
+  /** Rows from the instruction-sections hook (`InstructionRowInput`). */
+  instructionRows?: InstructionRowInput[]
   /** Project-edited synced files this run overwrote. */
   localEdits?: LocalEditInput[]
   /** `package.json` keys kept at the project's value while upstream differs. */
   packageJsonKept?: PackageJsonKeptInput[]
   /** Quality gates run after the apply; only failed / timed-out ones become rows. */
   gates?: GateResult[]
+  /** Project commands the compat hook moved to `SHADOWING_COMMANDS_BACKUP_DIR` this run. */
+  shadowingCommandsMoved?: string[]
   /** A legacy git-tracked `.context/PBI/` cache (see `updater-pbi.ts`): one row, the recipe in its file. */
   pbiCache?: PbiCacheInput | null
+  /** Context map states; defaults to reading them from `root` (`contextMapStatuses`). */
+  contextMaps?: MapStatus[]
+  /** Shared-profile keys in the project's playwright-cli config; defaults to reading `root` (`legacyPlaywrightProfileKeys`). */
+  playwrightProfileKeys?: string[]
+  /** Prerequisite declarations, keyed by repo-relative path. Defaults to `PATH_PREREQUISITES`. */
+  prerequisites?: Record<string, PathPrerequisite>
+  /** Which shipped skill reads which top-level config block. Defaults to `CONFIG_BLOCK_READERS`. */
+  configBlockReaders?: Record<string, Record<string, ConfigBlockReader>>
 }
 
 export interface PbiCacheInput {
@@ -150,6 +215,8 @@ export interface PbiCacheInput {
   tracked: number
   /** Repo-relative path of the saved migration recipe. */
   recipePath: string
+  /** Of those, how many sit under a `test-specs/` directory (`[COMMIT]` tier everywhere else). */
+  testSpecs?: number
 }
 
 export interface ParityMeta {
@@ -158,6 +225,8 @@ export interface ParityMeta {
   lockSha: string
   /** Repo-relative path of the saved prompt file (named inside the prompt). */
   promptFile: string
+  /** `--dry-run`: mark the rows the apply step is expected to resolve by itself. */
+  dryRun?: boolean
 }
 
 export type SurfaceState = 'ok' | 'warn' | 'blocked';
@@ -183,7 +252,6 @@ export interface ParityReport {
 export const PARITY_PROMPT_PATH = path.join('.agents', 'prompts', 'parity-plan.md');
 /** One marker per archived skill, next to the watchlist sha markers (gitignored). */
 const ARCHIVED_SKILL_MARKER_DIR = path.join('.template', 'upstream-sha');
-const WRAPPER_UNDECLARED_EVIDENCE = `wrapper not produced by ${COMMAND_ALIAS_MANIFEST} nor ${COMMAND_ALIAS_PROJECT_MANIFEST}`;
 
 const MCP_HOST_FILE: Record<string, string> = {
   claude: '.mcp.json',
@@ -192,13 +260,12 @@ const MCP_HOST_FILE: Record<string, string> = {
 };
 
 /** Order of the surfaces in every table. */
-export const SURFACE_ORDER: ParitySurface[] = ['instructions', 'skills', 'commands', 'hooks', 'mcp', 'env', 'components', 'package', 'git', 'gates'];
+export const SURFACE_ORDER: ParitySurface[] = ['instructions', 'skills', 'hooks', 'mcp', 'env', 'components', 'package', 'git', 'gates'];
 
 /** English labels for the prompt (the AI reads it). */
 const SURFACE_LABEL_EN: Record<ParitySurface, string> = {
   instructions: 'Instructions',
   skills: 'Skills',
-  commands: 'Commands',
   hooks: 'Hooks',
   mcp: 'MCP',
   env: 'Env',
@@ -212,7 +279,6 @@ const SURFACE_LABEL_EN: Record<ParitySurface, string> = {
 const SURFACE_LABEL_ES: Record<ParitySurface, string> = {
   instructions: 'Instrucciones y config',
   skills: 'Skills',
-  commands: 'Comandos',
   hooks: 'Hooks',
   mcp: 'MCP',
   env: 'Env',
@@ -246,6 +312,180 @@ export function protectNote(filePath: string): string {
 /** The hook whose `lint-staged` invocation the symlinked skills alias breaks. */
 export const HUSKY_PRE_COMMIT = '.husky/pre-commit';
 
+/** Its pre-push sibling. Same delivery: once when missing, then project-owned. */
+export const HUSKY_PRE_PUSH = '.husky/pre-push';
+
+/** The commit-message sibling. Same delivery; its gates are warn-only. */
+export const HUSKY_COMMIT_MSG = '.husky/commit-msg';
+
+/** The SYNCED file every hook sources to get the gates upstream owns. */
+export const HUSKY_GATES_FILE = '.husky/framework-gates.sh';
+
+export interface PathPrerequisite {
+  /** What the upstream hunk is needed FOR, in one scannable phrase. */
+  requiredBy: string
+  /** The project's own gate that proves it, named in the row. */
+  gate: string
+}
+
+/**
+ * Files whose upstream hunk is a PREREQUISITE for something else the same
+ * release ships. A kept copy of one of these is not cosmetic drift: the release
+ * is half-delivered until the hunk lands, and the row has to say so.
+ *
+ * Live finding (Bunkai): upstream shipped a skill declaring the new category
+ * `orchestration` AND the one-line `scripts/lint-skills.ts` change that admits
+ * it. The project had that script in `updater.protected_paths` for a documented
+ * reason, so only the skill arrived and `bun run skills:check` failed on a
+ * freshly synced repo. The row's whole evidence was `2 hunks (+1/-5)`, which is
+ * indistinguishable from a cosmetic diff, and `keep project` was chosen off it.
+ */
+export const PATH_PREREQUISITES: Record<string, PathPrerequisite> = {
+  'scripts/lint-skills.ts': {
+    requiredBy: 'the skill-category vocabulary every .agents/skills/**/SKILL.md is linted against; a skill shipped in the same release that declares a new category stays unlintable until this file carries it',
+    gate: 'bun run skills:check',
+  },
+  'cli/lib/agents-schema.ts': {
+    requiredBy: 'the generator and the rule table behind `.agents/project.schema.yaml`, which ships in the same release; a kept older copy compares a project against a template whose key set and safety reversals it does not implement, and reports a clean bill of health while doing it',
+    gate: 'bun test cli/lib/agents-schema.test.ts',
+  },
+  'scripts/api-login.ts': {
+    requiredBy: 'the 10-line entry that wires `scripts/lib/api-login-core.ts` (synced generic CLI) to `scripts/api-login.project.ts` (the project auth adapter); a kept pre-split copy never imports either, so agentic CLI improvements land inert until the project ports its own auth flow into the adapter and takes upstream\'s entry',
+    gate: 'bun test scripts/api-login.test.ts',
+  },
+};
+
+export interface ConfigBlockReader {
+  /** The skill that reads the block, spelled as it is invoked. */
+  skill: string
+  /** What the skill needs the block FOR, in one scannable phrase. */
+  requiredBy: string
+}
+
+/**
+ * Top-level blocks of a structural config file that a SHIPPED SKILL reads,
+ * per file. A block upstream added and the project does not have is otherwise
+ * reported as `structural`: informational, never blocking. That is right for
+ * project identity — a value upstream chose is none of the project's business —
+ * but wrong the moment a skill in the same release reads the block: the release
+ * ships a skill that fails at RUNTIME, in the middle of somebody's session,
+ * rather than at sync time when there is a prompt and an operator.
+ *
+ * So the rule is narrow on purpose: the block must be MISSING (a block that is
+ * present with different values stays informational, always), top-level, and
+ * DECLARED here. Nothing is inferred. Declaring a block is the deliberate act
+ * of saying "a skill breaks without this", and the cost of that act is one
+ * blocking row for every project that lacks it.
+ *
+ * WHERE THIS LIVES, and why here: beside `PATH_PREREQUISITES`, which is the
+ * same statement about a different unit — that one says a kept FILE leaves the
+ * release half-delivered, this one says a missing BLOCK does. Same authors,
+ * same review surface, same rendering. A per-skill frontmatter declaration was
+ * the alternative and is worse: the skill that needs the block ships from
+ * UPSTREAM, so the scanner would have to read the upstream clone's skills to
+ * judge the project's config, and a project that deleted the skill would lose
+ * the row that explains its own broken config.
+ */
+export const CONFIG_BLOCK_READERS: Record<string, Record<string, ConfigBlockReader>> = {
+  '.agents/project.yaml': {
+    git_strategy: {
+      skill: '/git-flow-master',
+      requiredBy: 'the branching strategy, the protected-branch list and `policy.direct_push_to_protected`, which Critical Rule #5 resolves before every push. Without the block the skill cannot tell an authorized direct push from a forbidden one, and `bun run git:policy verify` has no declared side to compare the host ruleset against',
+    },
+    orchestration: {
+      skill: '/orca-orchestration',
+      requiredBy: 'the fleet defaults (worktree provisioning, run mailbox, claims) the skill reads before launching a single worker',
+    },
+  },
+};
+
+/**
+ * Top-level blocks the project is MISSING that a shipped skill reads. Empty for
+ * a file with no declaration, for one that does not parse, and for every block
+ * whose only difference is its values.
+ */
+export function missingConfigBlocks(
+  filePath: string,
+  project: string,
+  upstream: string,
+  readers: Record<string, Record<string, ConfigBlockReader>> = CONFIG_BLOCK_READERS,
+): { block: string, reader: ConfigBlockReader }[] {
+  const declared = readers[filePath.replace(/\\/g, '/')];
+  if (declared === undefined) { return []; }
+  const mine = configEntries(project, filePath);
+  const theirs = configEntries(upstream, filePath);
+  if (!mine || !theirs) { return []; }
+  return Object.entries(declared)
+    // Top-level only: `configEntries` also carries `top.child` rows, and a
+    // missing CHILD of a block the project has is a value-shaped difference,
+    // not the absent-block failure this escalates.
+    .filter(([block]) => theirs.has(block) && !mine.has(block))
+    .map(([block, reader]) => ({ block, reader }));
+}
+
+/**
+ * The clause that turns a missing declared block into a blocking row. It names
+ * the skill, because the operator's real question is "what breaks if I skip
+ * this", and the answer is a skill they already have installed.
+ */
+export function configBlockClause(missing: { block: string, reader: ConfigBlockReader }[]): string {
+  const each = missing.map(m => `\`${m.block}:\` — read by \`${m.reader.skill}\` for ${m.reader.requiredBy}`);
+  return `BLOCKING: ${missing.length} block(s) upstream added are MISSING here and a shipped skill reads them, so it fails at runtime instead of at sync time: ${each.join(' | ')}. Take upstream's block and adapt its VALUES to this project; the values are yours, the block's existence is not`;
+}
+
+/** The declaration for a path, or null when its content gates nothing else. */
+export function prerequisiteFor(
+  filePath: string,
+  manifest: Record<string, PathPrerequisite> = PATH_PREREQUISITES,
+): PathPrerequisite | null {
+  return manifest[filePath.replace(/\\/g, '/')] ?? null;
+}
+
+/**
+ * The clause appended to a kept row whose hunk gates another file of the same
+ * release. It names the gate as the arbiter on purpose: the declaration is
+ * per-path, not per-hunk, so a project that already merged the hunk by hand
+ * proves it in one command instead of arguing with the row.
+ */
+export function prerequisiteClause(prerequisite: PathPrerequisite): string {
+  return `PREREQUISITE for this release: ${prerequisite.requiredBy}; keeping the project copy as-is fails \`${prerequisite.gate}\` (run it: it is the arbiter, and it passes if your copy already carries the hunk)`;
+}
+
+/** Marker for a dry-run row the apply step is expected to resolve by itself. */
+export const RESOLVED_BY_APPLY_MARK = '(resolved by apply)';
+
+/**
+ * Surfaces a real run repairs on its own: the sync DELIVERS these files (the
+ * hook emitter, the OpenCode plugin adapter, the instructions shim), so a
+ * contract broken against an old copy is
+ * fixed by applying the new one. Matched against the row's path AND its
+ * evidence, because a contract message names the file it is about even when the
+ * row's own path could not be extracted from it (`(compat)`).
+ */
+const SELF_HEALING_COMPAT_PATHS = ['.agents/hooks/', '.opencode/plugins/', 'CLAUDE.md'];
+
+/** Project-owned registries the apply step never overwrites: their contract needs a human. */
+const APPLY_CANNOT_FIX_PATHS = ['.claude/settings.json', '.mcp.json', 'opencode.jsonc', '.codex/config.toml'];
+
+/**
+ * True when the real run fixes this row without the user: the afterApply
+ * compatibility hook rebuilds the generated surfaces (`run agents:compat`), or
+ * the apply itself delivers the file whose contract failed
+ * (`SELF_HEALING_COMPAT_PATHS`). Measured on a live sync: 22 rows / 12 blocking
+ * on the dry-run, 16 / 6 on the run that applied, and the delta was exactly the
+ * six hook-emitter contract rows the 90 applied files resolved by themselves.
+ * A project-owned registry is never self-healing: it needs a decision. A
+ * command that shadows a skill is (`run agents:compat`): the hook moves it.
+ */
+export function resolvedByApply(finding: Pick<ParityFinding, 'suggested' | 'path' | 'evidence' | 'blocking'>): boolean {
+  if (finding.suggested === 'run agents:compat') { return true; }
+  // Only a failed contract self-heals; watched-file drift is a decision by design.
+  if (!finding.blocking) { return false; }
+  if (APPLY_CANNOT_FIX_PATHS.includes(finding.path)) { return false; }
+  const text = `${finding.path} ${finding.evidence}`;
+  return SELF_HEALING_COMPAT_PATHS.some(p => text.includes(p));
+}
+
 /**
  * `.husky/pre-commit` runs `bunx lint-staged`, and lint-staged's backup stash
  * cannot traverse the `.claude/skills` symlink the cross-harness migration
@@ -272,6 +512,48 @@ export function lintStagedNoStashNote(projectHook: string): string | null {
     '',
     '`--no-stash` only drops lint-staged\'s protection for unstaged hunks that collide with its own auto-fix.',
     'What gets committed is unchanged.',
+  ].join('\n');
+}
+
+/**
+ * Every husky hook is bootstrap-only: delivered once when missing, then
+ * project-owned, because a project's own gates live in them. The cost was that
+ * a gate added upstream never reached a project scaffolded earlier — four of
+ * them had already failed to land anywhere downstream.
+ *
+ * Upstream's fix is the gates split: the gates upstream owns moved into the
+ * SYNCED `.husky/framework-gates.sh`, and each hook sources it and calls one
+ * function. A hook that predates the split keeps every gate inlined and will
+ * never see another one, and nothing but this row can tell it so — which is the
+ * same shape as the `--no-stash` note, and the same reason it exists. The same
+ * holds for a project that already had its own `.husky/commit-msg` (commitlint,
+ * say) when upstream added one: ours is never delivered over it, so this row is
+ * the only way the warn-only trailer check reaches it.
+ *
+ * Returns the adoption note while the hook does not source the gates file; null
+ * once it does.
+ */
+export function frameworkGatesNote(projectHook: string, hookPath: string): string | null {
+  const sourced = projectHook
+    .split('\n')
+    .some(line => !line.trimStart().startsWith('#') && line.includes('framework-gates.sh'));
+  if (sourced) { return null; }
+  const fn = hookPath === HUSKY_PRE_PUSH
+    ? 'framework_gates_pre_push'
+    : hookPath === HUSKY_COMMIT_MSG ? 'framework_gates_commit_msg "$1"' : 'framework_gates_pre_commit';
+  return [
+    `Adopt the gates split in ${hookPath}. Your gates and their ordering stay yours; replace only the block`,
+    'that runs upstream\'s gates with the call below, and every gate a future release adds arrives with',
+    `${HUSKY_GATES_FILE} instead of needing this file rewritten:`,
+    '',
+    '    GATES="$(dirname -- "$0")/framework-gates.sh"',
+    '    if [ -f "$GATES" ]; then',
+    '      . "$GATES"',
+    `      ${fn}`,
+    '    fi',
+    '',
+    'The `-f` guard is not decoration: `.husky/_/h` runs the hook under `sh -e`, so sourcing a file that is',
+    'not there kills the hook. Read the synced file for what each gate covers.',
   ].join('\n');
 }
 
@@ -327,6 +609,26 @@ function formatStats(stats: DiffStats): string {
 function listNames(names: string[]): string {
   const shown = names.slice(0, MAX_NAMES).map(n => `"${n}"`).join(', ');
   return names.length > MAX_NAMES ? `${shown} +${names.length - MAX_NAMES} more` : shown;
+}
+
+/**
+ * The upstream additions. When the list is short enough to be named in full,
+ * that is the whole answer. When it has to be truncated, every NEW top-level
+ * object is named FIRST and marked, because a container folded into "+N more"
+ * hides its whole body: on a live sync a row read `port upstream additions
+ * only: "concurrency", "concurrency.group", "concurrency.cancel-in-progress"
+ * +3 more` while one of those three was a 99-line CI job, so a 180-line change
+ * looked like six lines. The remaining scalars keep the usual truncation.
+ */
+function listAdded(added: string[], containers: readonly string[] = []): string {
+  if (added.length <= MAX_NAMES) { return listNames(added); }
+  const isContainer = new Set(containers);
+  const objects = added.filter(n => isContainer.has(n));
+  if (objects.length === 0) { return listNames(added); }
+  const rest = added.filter(n => !isContainer.has(n));
+  const parts = [`${objects.map(n => `"${n}"`).join(', ')} (new object${objects.length === 1 ? '' : 's'})`];
+  if (rest.length > 0) { parts.push(listNames(rest)); }
+  return parts.join(', ');
 }
 
 // ============================================================================
@@ -466,8 +768,12 @@ export interface KeyDelta {
    * whole, args, env and url included.
    */
   changed: string[]
-  /** For each `changed` key holding an object on both sides: which fields differ (`args differ`, `env keys differ`). */
+  /** For each `changed` key holding an object on both sides: which fields differ (`args differ`, `env keys differ`). For an array on both sides: the elements added / removed. */
   changedDetail: Record<string, string>
+  /** The subset of `changed` holding an ARRAY on both sides (named in full, never "values differ"). */
+  changedArrays: string[]
+  /** The subset of `added` whose upstream value is an object: a new server, a new CI job. */
+  addedObjects: string[]
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -512,15 +818,40 @@ function describeObjectDelta(mine: Record<string, unknown>, theirs: Record<strin
 }
 
 /**
- * The changed keys as evidence: scalars by name (`values differ at: "a.x"`),
- * object entries by what differs inside (`context7: args differ`), at most
- * `MAX_NAMES` of each named, the rest counted.
+ * Which ELEMENTS of two arrays differ: `added: ["a"]`, `removed: ["b"]`, both.
+ * An appended entry is not a changed value, and reporting it as one is wrong in
+ * kind: measured on a live sync, `.claude/settings.json` read "values differ at
+ * permissions.allow" while upstream had simply appended two permissions.
  */
-function describeChangedKeys(changed: string[], detail: Record<string, string>): string {
+function describeArrayDelta(mine: readonly unknown[], theirs: readonly unknown[]): string {
+  const asText = (v: unknown): string => (typeof v === 'string' ? v : stableValue(v));
+  const minePlain = mine.map(asText);
+  const theirsPlain = theirs.map(asText);
+  const mineSet = new Set(minePlain);
+  const theirsSet = new Set(theirsPlain);
+  const added = theirsPlain.filter(v => !mineSet.has(v));
+  const removed = minePlain.filter(v => !theirsSet.has(v));
+  const parts: string[] = [];
+  if (added.length > 0) { parts.push(`added: [${listNames(added)}]`); }
+  if (removed.length > 0) { parts.push(`removed: [${listNames(removed)}]`); }
+  return parts.length > 0 ? parts.join(', ') : `same ${theirsPlain.length} item(s), order differs`;
+}
+
+/**
+ * The changed keys as evidence: scalars by name (`values differ at: "a.x"`),
+ * object entries by what differs inside (`context7: args differ`), arrays by
+ * their elements with the key named in full (`"permissions.allow": added:
+ * [...]`), at most `MAX_NAMES` of each named, the rest counted.
+ */
+function describeChangedKeys(changed: string[], detail: Record<string, string>, arrays: readonly string[] = []): string {
+  const isArray = new Set(arrays);
   const scalars = changed.filter(k => !(k in detail));
-  const objects = changed.filter(k => k in detail);
+  const arrayKeys = changed.filter(k => k in detail && isArray.has(k));
+  const objects = changed.filter(k => k in detail && !isArray.has(k));
   const parts: string[] = [];
   if (scalars.length > 0) { parts.push(`values differ at: ${listNames(scalars)}`); }
+  for (const key of arrayKeys.slice(0, MAX_NAMES)) { parts.push(`"${key}": ${detail[key]}`); }
+  if (arrayKeys.length > MAX_NAMES) { parts.push(`+${arrayKeys.length - MAX_NAMES} more array(s)`); }
   if (objects.length > 0) {
     // The entry's own name: the key minus the registry it sits under.
     const shown = objects.slice(0, MAX_NAMES).map(k => `${k.slice(k.indexOf('.') + 1)}: ${detail[k]}`).join('; ');
@@ -549,6 +880,8 @@ export function configKeyDelta(project: readonly string[] | ReadonlyMap<string, 
   const projectOnly = [...mine.keys()].filter(k => !theirs.has(k));
   const changed: string[] = [];
   const changedDetail: Record<string, string> = {};
+  const changedArrays: string[] = [];
+  const addedObjects = withValues ? added.filter(k => isPlainObject(theirs.get(k))) : [];
   if (withValues) {
     // A key whose children are entries of their own (a top key holding an
     // object) is judged through them; anything else is compared whole.
@@ -564,9 +897,13 @@ export function configKeyDelta(project: readonly string[] | ReadonlyMap<string, 
       if (stableValue(own) === stableValue(value)) { continue; }
       changed.push(key);
       if (isPlainObject(own) && isPlainObject(value)) { changedDetail[key] = describeObjectDelta(own, value); }
+      else if (Array.isArray(own) && Array.isArray(value)) {
+        changedDetail[key] = describeArrayDelta(own, value);
+        changedArrays.push(key);
+      }
     }
   }
-  return { added, projectOnly, changed, changedDetail };
+  return { added, projectOnly, changed, changedDetail, changedArrays, addedObjects };
 }
 
 export interface WatchedFileEvidence {
@@ -582,17 +919,25 @@ export interface WatchedFileEvidence {
  * lack. `unit` names the structure compared ("key" / "heading"). Never a bare
  * `merge`: the evidence says what to port and what to keep.
  */
-function costSignal(unit: string, added: string[], projectOnly: string[], changed: string[], changedDetail: Record<string, string> = {}): { parts: string[], suggested: ParitySuggestion } {
+function costSignal(
+  unit: string,
+  added: string[],
+  projectOnly: string[],
+  changed: string[],
+  changedDetail: Record<string, string> = {},
+  shape: { changedArrays?: readonly string[], addedObjects?: readonly string[] } = {},
+): { parts: string[], suggested: ParitySuggestion } {
   const units = (n: number): string => `${unit}${n === 1 ? '' : 's'}`;
-  const changedNote = unit === 'heading' ? `body differs in ${changed.length}: ${listNames(changed)}` : describeChangedKeys(changed, changedDetail);
+  const changedNote = unit === 'heading' ? `body differs in ${changed.length}: ${listNames(changed)}` : describeChangedKeys(changed, changedDetail, shape.changedArrays);
+  const addedNote = listAdded(added, shape.addedObjects);
   if (added.length > 0 && projectOnly.length > 0) {
-    const parts = [`port upstream additions only: ${listNames(added)}`, `keep project-only ${units(projectOnly.length)}: ${listNames(projectOnly)}`];
+    const parts = [`port upstream additions only: ${addedNote}`, `keep project-only ${units(projectOnly.length)}: ${listNames(projectOnly)}`];
     if (changed.length > 0) { parts.push(changedNote); }
     return { parts, suggested: 'merge' };
   }
   if (added.length > 0) {
-    if (changed.length === 0) { return { parts: [`upstream added ${added.length} ${units(added.length)}: ${listNames(added)}`, 'nothing project-only'], suggested: 'take upstream' }; }
-    return { parts: [`port upstream additions only: ${listNames(added)}`, `keep project ${unit === 'heading' ? 'bodies' : 'values'} at: ${listNames(changed)}`], suggested: 'merge' };
+    if (changed.length === 0) { return { parts: [`upstream added ${added.length} ${units(added.length)}: ${addedNote}`, 'nothing project-only'], suggested: 'take upstream' }; }
+    return { parts: [`port upstream additions only: ${addedNote}`, `keep project ${unit === 'heading' ? 'bodies' : 'values'} at: ${listNames(changed)}`], suggested: 'merge' };
   }
   if (projectOnly.length > 0) {
     if (changed.length === 0) { return { parts: [`project-only ${units(projectOnly.length)}: ${listNames(projectOnly)}`, 'upstream adds nothing'], suggested: 'keep project' }; }
@@ -600,6 +945,73 @@ function costSignal(unit: string, added: string[], projectOnly: string[], change
   }
   if (changed.length > 0) { return { parts: [`same ${units(2)}, ${changedNote} (port what you want, keep the rest)`], suggested: 'merge' }; }
   return { parts: [`same ${units(2)} and ${unit === 'heading' ? 'bodies' : 'values'}; formatting or comments differ`], suggested: 'keep project' };
+}
+
+/**
+ * A downstream project's protected MCP file still declares a server upstream
+ * moved to HARNESS level (ADR-0005, D3: web search, Postman). The file is on
+ * the watchlist, so nothing overwrites it; this note is how the project learns
+ * the server is now the harness's business. Returns the clause for the row and
+ * the longer note, or null when the project declares none of them or upstream
+ * still has them.
+ */
+export function harnessLevelMcpNote(filePath: string, project: string, upstream: string): { clause: string, note: string } | null {
+  if (!Object.values(MCP_HOST_FILE).includes(filePath)) { return null; }
+  const mine = configEntries(project, filePath);
+  const theirs = configEntries(upstream, filePath);
+  if (!mine || !theirs) { return null; }
+  const registries = ['mcpServers', 'mcp', 'mcp_servers'];
+  // Only a server upstream once committed moved; one it never shipped has no migration to explain.
+  const moved = HARNESS_LEVEL_MCPS.filter(m => m.formerEnvVar !== null
+    && registries.some(r => mine.has(`${r}.${m.id}`)) && !registries.some(r => theirs.has(`${r}.${m.id}`)));
+  if (moved.length === 0) { return null; }
+  const ids = moved.map(m => m.id);
+  const vars = moved.flatMap(m => (m.formerEnvVar === null ? [] : [m.formerEnvVar]));
+  return {
+    clause: `${listNames(ids)} now run at harness level (upstream removed them and their keys ${listNames(vars)}): keep them here as project-only servers, or remove them and connect them once per machine`,
+    note: [
+      `Upstream no longer commits ${listNames(ids)}: a remote MCP server whose only project-side content is an API key is the harness's business, and the skills resolve it by capability whatever the server prefix (ADR-0005; .agents/skills/agentic-qa-core/references/mcp-capabilities.md).`,
+      'Two valid answers for this project:',
+      `  - keep project: the server stays a project-only entry in ${filePath} and its key stays in your .env and .env.example (the manifest no longer declares ${listNames(vars)}, so vars:env:check treats the uncommented line as an orphan unless you keep it commented or declare it in .env.schema).`,
+      `  - remove it here (and from the other two host files) and connect it at user level: Claude Code \`claude mcp add --scope user\` or a claude.ai connector; OpenCode ~/.config/opencode/opencode.json; Codex \`codex mcp add\`. Then drop ${listNames(vars)} from .env.`,
+      'bun run setup:doctor reports which of these servers your user-level configs already declare.',
+    ].join('\n'),
+  };
+}
+
+/**
+ * Local servers upstream once committed and then RETIRED outright (no
+ * harness-level replacement): the capability they served moved to a CLI.
+ * Keyed by server id; the value is the one-line reason the row prints.
+ */
+export const RETIRED_MCPS: Readonly<Record<string, string>> = {
+  playwright: 'browser automation is `/playwright-cli` only, and no skill resolves a browser MCP any more',
+};
+
+/**
+ * A downstream project's protected MCP file still declares a server upstream
+ * RETIRED (`RETIRED_MCPS`). Nothing overwrites the file; this note is how the
+ * project learns why the server left and that keeping it is a valid answer.
+ * Null when the project declares none of them or upstream still has them.
+ */
+export function retiredMcpNote(filePath: string, project: string, upstream: string): { clause: string, note: string } | null {
+  if (!Object.values(MCP_HOST_FILE).includes(filePath)) { return null; }
+  const mine = configEntries(project, filePath);
+  const theirs = configEntries(upstream, filePath);
+  if (!mine || !theirs) { return null; }
+  const registries = ['mcpServers', 'mcp', 'mcp_servers'];
+  const retired = Object.keys(RETIRED_MCPS).filter(id =>
+    registries.some(r => mine.has(`${r}.${id}`)) && !registries.some(r => theirs.has(`${r}.${id}`)));
+  if (retired.length === 0) { return null; }
+  return {
+    clause: `upstream retired ${listNames(retired)}: keep it here as a project-only server, or remove it`,
+    note: [
+      ...retired.map(id => `Upstream no longer commits ${listNames([id])}: ${RETIRED_MCPS[id]}.`),
+      'Two valid answers for this project:',
+      `  - keep project: the server stays a project-only entry in ${filePath} (and in the other two host files); agents:compat:check still compares it across hosts, just without a pinned shape.`,
+      '  - remove it from all three host files.',
+    ].join('\n'),
+  };
 }
 
 /** Evidence for a watched file, from its two copies plus the diff. */
@@ -619,7 +1031,7 @@ export function watchedFileEvidence(filePath: string, project: string, upstream:
     if (mine && theirs) {
       const delta = configKeyDelta(mine, theirs);
       projectOnly = delta.projectOnly.length > 0;
-      ({ parts, suggested } = costSignal('key', delta.added, delta.projectOnly, delta.changed, delta.changedDetail));
+      ({ parts, suggested } = costSignal('key', delta.added, delta.projectOnly, delta.changed, delta.changedDetail, { changedArrays: delta.changedArrays, addedObjects: delta.addedObjects }));
     }
     else {
       // No key structure (a shell hook, a JS config): the hunks are the evidence.
@@ -636,20 +1048,51 @@ export function watchedFileEvidence(filePath: string, project: string, upstream:
  */
 export function structuralEvidence(filePath: string, project: string, upstream: string): string | null {
   let added: string[];
+  let addedObjects: string[] = [];
   let unit: string;
   if (path.extname(filePath).toLowerCase() === '.md') {
     added = markdownSectionDelta(project, upstream).added;
     unit = 'heading';
   }
+  else if (hasDeepWalk(filePath)) {
+    // `.agents/project.yaml` and nothing else today. The 2-level walk below
+    // is right for an MCP registry, where depth 3 is a server's args; it is
+    // wrong here, where it cannot see 46 of 93 key paths — including
+    // `git_strategy.policy.direct_push_to_protected`, which Critical Rule #5
+    // resolves every push against. Measured on a project missing
+    // `orchestration:`: 42 paths visible to the old walk, 88 to this one.
+    //
+    // Comparing against UPSTREAM'S OWN yaml rather than against
+    // `.agents/project.schema.yaml` is safe and deliberate: this function
+    // compares key paths and never values, and `agents:schema:check` gates the
+    // two files to the same key set. The schema is what INSERTION reads, where
+    // the maintainer's values would genuinely leak.
+    const mine = walkGovernedFile(project, filePath);
+    const theirs = walkGovernedFile(upstream, filePath);
+    // Invariant 2: a parse failure says so instead of degrading to a narrower
+    // key set and reporting success.
+    if (!mine) { return `informational: this project's ${filePath} does not parse — schema comparison SKIPPED, so upstream additions are invisible until it is fixed`; }
+    if (!theirs) { return null; }
+    const containers = new Set(theirs.containers);
+    added = [...theirs.entries.keys()].filter(k => !mine.entries.has(k));
+    addedObjects = added.filter(k => containers.has(k));
+    // A whole new block reports the block, not its leaves: `orchestration`
+    // plus its four children is one decision, not five.
+    const wholeBlocks = new Set(addedObjects.filter(k => !k.includes('.')));
+    added = added.filter(k => wholeBlocks.size === 0 || !k.includes('.') || !wholeBlocks.has(k.split('.')[0]));
+    unit = 'key path';
+  }
   else {
     const mine = configEntries(project, filePath);
     const theirs = configEntries(upstream, filePath);
     if (!mine || !theirs) { return null; }
-    added = configKeyDelta(mine, theirs).added;
+    const delta = configKeyDelta(mine, theirs);
+    added = delta.added;
+    addedObjects = delta.addedObjects;
     unit = 'key';
   }
   if (added.length === 0) { return null; }
-  return `informational: upstream added ${added.length} ${unit}${added.length === 1 ? '' : 's'}: ${listNames(added)}; merge = add the new ${unit}s, values are project identity and never compared`;
+  return `informational: upstream added ${added.length} ${unit}${added.length === 1 ? '' : 's'}: ${listAdded(added, addedObjects)}; merge = add the new ${unit}s, values are project identity and never compared`;
 }
 
 /** One evidence sentence for a watched file, from its two copies plus the diff. */
@@ -663,15 +1106,15 @@ export function describeWatchedFile(filePath: string, project: string, upstream:
 
 const MCP_MISSING_RE = /^MCP (\S+) missing from (\w+):/;
 const MCP_EXTRA_RE = /^MCP (\S+) present in (\w+) only:/;
-/** `validateCommandAliases` names a wrapper file no manifest produced. */
-const WRAPPER_UNDECLARED_RE = /^Command wrapper not declared in any manifest: (\S+?);/;
 
 const COMPAT_GROUP_SURFACE: Record<CompatibilityErrorGroup, ParitySurface> = {
   instructions: 'instructions',
   alias: 'skills',
-  wrappers: 'commands',
+  // A command that shadows a skill is a skills problem: the skill is what stops loading.
+  commands: 'skills',
   hooks: 'hooks',
   mcp: 'mcp',
+  lint: 'gates',
 };
 
 /** Same classifier `bun run agents:compat` groups its output by. */
@@ -680,13 +1123,12 @@ export function compatErrorSurface(message: string): ParitySurface {
 }
 
 /**
- * Generated surfaces are rebuilt by `agents:compat`; a wrapper no manifest
- * declares is the project's to declare (overlay) or delete; anything else
- * comes from upstream's shape.
+ * Generated surfaces are rebuilt by `agents:compat`, and the same repair moves
+ * a command that shadows a skill aside; anything else comes from upstream's
+ * shape.
  */
 export function compatErrorSuggestion(message: string): ParitySuggestion {
-  if (WRAPPER_UNDECLARED_RE.test(message)) { return 'add to overlay'; }
-  return /command wrapper|skills alias|\.claude\/skills/i.test(message) ? 'run agents:compat' : 'take upstream';
+  return /command shadows skill|skills alias|\.claude\/skills/i.test(message) ? 'run agents:compat' : 'take upstream';
 }
 
 function compatErrorPath(message: string): string {
@@ -696,6 +1138,66 @@ function compatErrorPath(message: string): string {
   if (host && /MCP/.test(message)) { return MCP_HOST_FILE[host[1].toLowerCase()]; }
   if (/skills alias|\.claude\/skills/.test(message)) { return '.claude/skills'; }
   return '(compat)';
+}
+
+/** Delivered once by the `playwright-cli-config` component, then project-owned. */
+export const PLAYWRIGHT_CLI_CONFIG = '.playwright/cli.config.json';
+
+/**
+ * The direnv file upstream shipped until it retired direnv: every MCP server,
+ * launcher and script loads `.env` itself, so nothing reads this file. A
+ * project's copy is left alone (it may hold the developer's own lines) and
+ * reported once per run as removable.
+ */
+export const RETIRED_ENVRC = '.envrc';
+
+/**
+ * The `package.json` scripts upstream shipped to open a harness through a
+ * loader (`dotenv -- claude`, then `scripts/launch.ts claude`). They exported
+ * every `.env` value into the AI's own process, so upstream retired them
+ * (ADR-0014): a harness opens bare and every MCP server loads `.env` itself.
+ * The package.json sync never re-adds them (it only appends keys upstream
+ * has); a project's copy is left alone and reported once per run as removable.
+ */
+export const RETIRED_HARNESS_SCRIPTS: readonly string[] = ['claude', 'codex', 'opencode'];
+
+/**
+ * The retired harness scripts this project still declares: a key named after a
+ * harness whose command loads `.env` before starting it (every shape upstream
+ * ever shipped). A project's own script with that name and another job is not
+ * reported. Empty when `package.json` is absent or unparseable.
+ */
+export function retiredHarnessScripts(root: string): string[] {
+  let scripts: unknown;
+  try {
+    scripts = (JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')) as { scripts?: unknown }).scripts;
+  }
+  catch { return []; }
+  if (scripts === null || typeof scripts !== 'object') { return []; }
+  return RETIRED_HARNESS_SCRIPTS.filter((name) => {
+    const cmd = (scripts as Record<string, unknown>)[name];
+    return typeof cmd === 'string' && /launch\.ts|varlock|dotenv|\.env\b/.test(cmd);
+  });
+}
+
+/**
+ * The keys in the project's playwright-cli config that pin every session to
+ * one shared on-disk profile: `browser.isolated: false` and any
+ * `browser.userDataDir` (ADR-0008 removed both). Empty when the file is
+ * absent, unparseable, or clean: a broken file is the CLI's to report.
+ */
+export function legacyPlaywrightProfileKeys(root: string): string[] {
+  const file = path.join(root, PLAYWRIGHT_CLI_CONFIG);
+  if (!fs.existsSync(file)) { return []; }
+  let browser: unknown;
+  try { browser = (JSON.parse(fs.readFileSync(file, 'utf8')) as { browser?: unknown }).browser; }
+  catch { return []; }
+  if (typeof browser !== 'object' || browser === null || Array.isArray(browser)) { return []; }
+  const block = browser as Record<string, unknown>;
+  const keys: string[] = [];
+  if (block.isolated === false) { keys.push('browser.isolated: false'); }
+  if (Object.prototype.hasOwnProperty.call(block, 'userDataDir')) { keys.push('browser.userDataDir'); }
+  return keys;
 }
 
 // ============================================================================
@@ -714,17 +1216,6 @@ function watchedSurface(filePath: string, source: 'upstream' | 'project' = 'upst
   // Synced component files kept as the project's own (.husky hooks, a declared path).
   if (filePath.startsWith('.husky/') || source === 'project') { return 'components'; }
   return 'instructions';
-}
-
-/**
- * Wrappers on disk that no manifest (upstream, project overlay) produces, as the
- * compat engine sees them. Without a manifest there is nothing to compare
- * against, so a project that has not received `agent-compatibility` yet yields
- * nothing instead of throwing.
- */
-function wrappersNoManifestProduced(root: string): string[] {
-  try { return undeclaredCommandWrappers(root); }
-  catch { return []; }
 }
 
 // ============================================================================
@@ -791,40 +1282,78 @@ export function collectParityFindings(input: ParityInput): ParityFinding[] {
   //    the same path folds the drift into its (blocking) row.
   //    A structural entry (project identity) fires only for upstream
   //    additions, labelled `informational`, and its keys are the evidence; a
-  //    value-only difference is no row at all.
+  //    value-only difference is no row at all. Every one of these rows is a
+  //    KEPT file (a watched path is never overwritten), and a kept path whose
+  //    upstream hunk gates another file of this release says so and blocks.
   const drifted = new Map<string, Omit<ParityFinding, 'id'> & { projectOnly: boolean }>();
   for (const entry of input.drift) {
     const project = readIfExists(path.join(input.root, entry.path));
     const upstream = readIfExists(path.join(input.upstreamDir, entry.path));
     if (project === null || upstream === null) { continue; }
     const diff = diffNoIndex(path.join(input.root, entry.path), path.join(input.upstreamDir, entry.path));
+    const prerequisite = prerequisiteFor(entry.path, input.prerequisites);
+    // `entry.reason` is the watchlist's "why this is protected / what to adopt"
+    // guidance (e.g. the api-login split's adoption nudge). It only reaches the
+    // operator if it lands in the row's evidence, so every row appends it here.
+    const withPrerequisite = (evidence: string): string => {
+      const withReason = `${evidence}; ${entry.reason}`;
+      return prerequisite === null ? withReason : `${withReason}; ${prerequisiteClause(prerequisite)}`;
+    };
     if (entry.structural) {
       const evidence = structuralEvidence(entry.path, project, upstream);
-      if (evidence === null) { continue; }
-      drifted.set(entry.path, { surface: watchedSurface(entry.path, entry.source), path: entry.path, evidence, suggested: 'merge', blocking: false, diff, projectOnly: true });
+      // A MISSING top-level block a shipped skill reads is not informational:
+      // the skill fails at runtime in somebody's session instead of here, where
+      // there is an operator and a prompt. It escalates even when
+      // `structuralEvidence` found nothing else to say.
+      const missingBlocks = missingConfigBlocks(entry.path, project, upstream, input.configBlockReaders);
+      if (evidence === null && missingBlocks.length === 0) { continue; }
+      const structural = [evidence, missingBlocks.length > 0 ? configBlockClause(missingBlocks) : null]
+        .filter((part): part is string => part !== null)
+        .join('; ');
+      drifted.set(entry.path, { surface: watchedSurface(entry.path, entry.source), path: entry.path, evidence: withPrerequisite(structural), suggested: 'merge', blocking: prerequisite !== null || missingBlocks.length > 0, side: 'kept', diff, projectOnly: true });
       continue;
     }
     const { evidence, projectOnly, suggested } = watchedFileEvidence(entry.path, project, upstream, diff);
-    // The pre-commit hook is never overwritten, so a consumer only learns about
-    // the `--no-stash` fix if the row says so (issue #28, bug 2).
-    const noStash = entry.path === HUSKY_PRE_COMMIT ? lintStagedNoStashNote(project) : null;
+    // Neither husky hook is ever overwritten, so a consumer only learns about an
+    // upstream fix to one if the row says so: the `--no-stash` flag (issue #28,
+    // bug 2) and the gates split, without which no gate a future release adds
+    // ever runs there. Both can be pending on the same hook.
+    const hookNotes: { clause: string, note: string }[] = [];
+    if (entry.path === HUSKY_PRE_COMMIT) {
+      const noStash = lintStagedNoStashNote(project);
+      if (noStash !== null) {
+        hookNotes.push({ clause: 'lint-staged still runs without --no-stash, which breaks every commit behind the .claude/skills symlink', note: noStash });
+      }
+    }
+    if (entry.path === HUSKY_PRE_COMMIT || entry.path === HUSKY_PRE_PUSH || entry.path === HUSKY_COMMIT_MSG) {
+      const gates = frameworkGatesNote(project, entry.path);
+      if (gates !== null) {
+        hookNotes.push({ clause: `this hook does not source ${HUSKY_GATES_FILE}, so no gate a future release adds will ever run here`, note: gates });
+      }
+    }
+    // An MCP host file still carrying a server upstream moved to harness level:
+    // the row explains the move; the file is never overwritten.
+    const harnessLevel = harnessLevelMcpNote(entry.path, project, upstream);
+    if (harnessLevel !== null) { hookNotes.push(harnessLevel); }
+    const retired = retiredMcpNote(entry.path, project, upstream);
+    if (retired !== null) { hookNotes.push(retired); }
     drifted.set(entry.path, {
       surface: watchedSurface(entry.path, entry.source),
       path: entry.path,
-      evidence: noStash === null
-        ? evidence
-        : `${evidence}; lint-staged still runs without --no-stash, which breaks every commit behind the .claude/skills symlink`,
-      suggested,
-      blocking: false,
+      evidence: withPrerequisite([evidence, ...hookNotes.map(n => n.clause)].join('; ')),
+      // A prerequisite row cannot be "reviewed later": the release is
+      // half-delivered until its hunk lands, so it is a merge, and it blocks.
+      suggested: prerequisite === null ? suggested : 'merge',
+      blocking: prerequisite !== null,
+      side: 'kept',
       diff,
       projectOnly,
-      ...(noStash === null ? {} : { note: noStash }),
+      ...(hookNotes.length === 0 ? {} : { note: hookNotes.map(n => n.note).join('\n\n') }),
     });
   }
 
-  // 2. Compat errors. MCP set errors fold into one finding per host; a wrapper
-  //    no manifest declares is one row per path; the rest stay one finding
-  //    each. All of them block: the contract failed. A drifted watched file on
+  // 2. Compat errors. MCP set errors fold into one finding per host; the rest
+  //    stay one finding each. All of them block: the contract failed. A drifted watched file on
   //    the same path folds in: compat evidence first, drift evidence appended,
   //    the full diff kept for the saved file. Upstream's shape is suggested
   //    only when the project holds nothing of its own there; a project-only
@@ -840,18 +1369,13 @@ export function collectParityFindings(input: ParityInput): ParityFinding[] {
       ...finding,
       evidence: `${finding.evidence}; ${driftFinding.evidence}`,
       suggested: finding.suggested === 'take upstream' && !projectOnly ? 'take upstream' : 'merge',
+      // The watched copy is still the one on disk: the fold must not lose that.
+      side: driftFinding.side,
       diff: driftFinding.diff,
     });
   };
-  const wrappersReported = new Set<string>();
   const mcpByHost = new Map<string, { missing: string[], extra: string[] }>();
   for (const error of input.compatErrors) {
-    const undeclared = WRAPPER_UNDECLARED_RE.exec(error);
-    if (undeclared) {
-      wrappersReported.add(undeclared[1]);
-      pushCompat({ surface: 'commands', path: undeclared[1], evidence: WRAPPER_UNDECLARED_EVIDENCE, suggested: 'add to overlay', blocking: true });
-      continue;
-    }
     const missing = MCP_MISSING_RE.exec(error);
     const extra = MCP_EXTRA_RE.exec(error);
     const match = missing ?? extra;
@@ -885,7 +1409,69 @@ export function collectParityFindings(input: ParityInput): ParityFinding[] {
       blocking: true,
     });
   }
+  // Compat warnings: a contract the project cannot satisfy by syncing (a
+  // bootstrap-only file upstream improved later). Informational, never
+  // blocking; the warning itself names what to add. One row per path: it
+  // folds into a compat row already on that path, or onto its drift row.
+  for (const warning of input.compatWarnings ?? []) {
+    const warningPath = compatErrorPath(warning);
+    const existing = compat.find(f => f.path === warningPath);
+    if (existing) {
+      existing.evidence = `${existing.evidence}; informational: ${warning}`;
+      continue;
+    }
+    pushCompat({
+      surface: compatErrorSurface(warning),
+      path: warningPath,
+      evidence: `informational: ${warning}`,
+      suggested: 'merge',
+      blocking: false,
+      side: 'kept',
+    });
+  }
+  // The doctrine ledger: one aggregated row for AGENTS.md sections this project
+  // still lacks. Unlike every other watched-file row it is tracked by CONTENT,
+  // so `keep project` does not retire it — writing the section does. It folds
+  // onto the existing AGENTS.md drift row when there is one, so a run never
+  // shows two rows about the same file.
+  if (typeof input.doctrineDebt === 'string' && input.doctrineDebt !== '') {
+    // The path comes from the caller, not from an import of `updater-doctrine`:
+    // that module imports `markdownSectionDelta` from here, and taking the
+    // constant back would close the cycle.
+    const doctrinePath = input.doctrineFile ?? 'AGENTS.md';
+    const existing = drifted.get(doctrinePath);
+    if (existing) { existing.evidence = `${existing.evidence}; ${input.doctrineDebt}`; }
+    else {
+      findings.push({
+        surface: 'instructions',
+        path: doctrinePath,
+        evidence: input.doctrineDebt,
+        suggested: 'merge',
+        blocking: false,
+        side: 'kept',
+      });
+    }
+  }
+
+  // The instruction sections: the `agent-project.md` stub this run delivered (or
+  // refused) and the heading map for an AGENTS.md that predates the split.
+  // A row about a file that also drifted REPLACES that row's heading advice:
+  // "keep project-only headings" is wrong for headings that now live in a
+  // synced section. The doctrine debt stays on it.
+  const instructionRows: InstructionRowInput[] = [];
+  for (const row of input.instructionRows ?? []) {
+    const existing = drifted.get(row.path);
+    if (!existing) { instructionRows.push(row); continue; }
+    existing.evidence = [row.evidence, input.doctrineDebt].filter(e => typeof e === 'string' && e !== '').join('; ');
+    existing.suggested = row.suggested;
+    if (row.note) { existing.note = row.note; }
+  }
+
   findings.push(...[...drifted.values()].map(({ projectOnly: _projectOnly, ...finding }) => finding), ...compat);
+
+  for (const row of instructionRows) {
+    findings.push({ surface: 'instructions', path: row.path, evidence: row.evidence, suggested: row.suggested, blocking: false, ...(row.side ? { side: row.side } : {}), ...(row.note ? { note: row.note } : {}) });
+  }
 
   // 3. Archived skills: the migration kept the legacy copy because upstream owns the name.
   for (const skill of input.archivedSkills) {
@@ -906,15 +1492,52 @@ export function collectParityFindings(input: ParityInput): ParityFinding[] {
     });
   }
 
-  // 4. Command wrappers no manifest knows about, when the compat check did not
-  //    already name them (it did not run, or the manifest was missing then).
-  for (const wrapper of wrappersNoManifestProduced(input.root)) {
-    if (wrappersReported.has(wrapper)) { continue; }
+  // 3b. A leftover `.envrc` (direnv retired upstream): one informational row,
+  //     the file itself is never touched.
+  if (fs.existsSync(path.join(input.root, RETIRED_ENVRC))) {
     findings.push({
-      surface: 'commands',
-      path: wrapper,
-      evidence: WRAPPER_UNDECLARED_EVIDENCE,
-      suggested: 'add to overlay',
+      surface: 'components',
+      path: RETIRED_ENVRC,
+      evidence: 'informational: upstream retired direnv and no longer ships or reads this file; every MCP server and each script load .env themselves, so secrets never need exporting into the shell. Left untouched: delete it (and `!.envrc` in .gitignore) when convenient, after moving any line of your own elsewhere',
+      suggested: 'keep project',
+      blocking: false,
+    });
+  }
+
+  // 3c. The retired harness launch scripts (ADR-0014): one informational row,
+  //     package.json itself is never touched.
+  const harnessScripts = retiredHarnessScripts(input.root);
+  if (harnessScripts.length > 0) {
+    findings.push({
+      surface: 'package',
+      path: 'package.json',
+      evidence: `informational: upstream retired the harness launch scripts ${harnessScripts.map(name => `\`${name}\``).join(', ')}: they export every .env value into the AI's own process, where any command it runs can read them. Open the harness directly (\`claude\`, \`codex\`, \`opencode\` or the desktop app); every MCP server and the test scripts load .env themselves, and the synced scripts/launch.ts refuses a harness binary. Left untouched: delete the scripts (and any doc of yours that names them) when convenient`,
+      suggested: 'keep project',
+      blocking: false,
+    });
+  }
+
+  // 4. Harness commands. The alias layer is retired: a skill is invoked by its
+  //    own name plus a mode, and nothing generates command files any more. A
+  //    project that declared its own aliases keeps its wrapper files as plain
+  //    harness commands; the overlay that listed them is inert, named once.
+  //    A command that carried a skill's name was moved aside by the compat
+  //    hook, one row each, so the project can port anything worth keeping.
+  if (fs.existsSync(path.join(input.root, RETIRED_COMMAND_ALIAS_OVERLAY))) {
+    findings.push({
+      surface: 'components',
+      path: RETIRED_COMMAND_ALIAS_OVERLAY,
+      evidence: `informational: command aliases are retired and nothing reads this overlay any more; the commands it declared are plain harness command files now (${HARNESS_COMMAND_DIRS.join(', ')}): edit them there, and delete the overlay when convenient`,
+      suggested: 'keep project',
+      blocking: false,
+    });
+  }
+  for (const moved of input.shadowingCommandsMoved ?? []) {
+    findings.push({
+      surface: 'skills',
+      path: moved,
+      evidence: `informational: this command had the name of a skill and would have replaced the skill's instructions; moved to ${SHADOWING_COMMANDS_BACKUP_DIR}/${moved}; port anything worth keeping into the skill, then drop the backup`,
+      suggested: 'keep project',
       blocking: false,
     });
   }
@@ -933,11 +1556,51 @@ export function collectParityFindings(input: ParityInput): ParityFinding[] {
   // 5b. `.context/PBI/` still tracked in git: one row on Componentes. The
   //     path list (hundreds of lines on a live run) lives in the recipe file,
   //     never in the prompt.
+  //     The ignore clause is not decoration: the ladder is usually already
+  //     correct (measured: full rule parity with upstream while 370 paths
+  //     stayed tracked), so the first instinct — go fix `.gitignore` — is a
+  //     detour. An ignore rule never untracks what is already in the index.
+  // Context maps (cli/lib/context-maps.ts): a delivered skill whose map was
+  // never generated, with the old markdown it replaces beside it when there is
+  // some. Informational, never blocking: the map is generated by a skill step,
+  // not by a sync, and the old files are input, never deletion candidates.
+  for (const status of input.contextMaps ?? contextMapStatuses(input.root)) {
+    const advice = contextMapAdvice(status);
+    if (advice === null) { continue; }
+    findings.push({
+      surface: 'skills',
+      path: mapRelPath(status.skill),
+      evidence: `informational: ${advice}`,
+      suggested: 'keep project',
+      blocking: false,
+    });
+  }
+
+  // The playwright-cli config ships once and is never overwritten, so a copy
+  // scaffolded before ADR-0008 keeps launching every named session on ONE
+  // shared on-disk profile. Informational: the fix is two deleted keys, and
+  // the human decides when (browser-sessions.md, rule of the OK).
+  const profileKeys = input.playwrightProfileKeys ?? legacyPlaywrightProfileKeys(input.root);
+  if (profileKeys.length > 0) {
+    findings.push({
+      surface: 'components',
+      path: PLAYWRIGHT_CLI_CONFIG,
+      evidence: `informational: ${profileKeys.join(' and ')} still set: every session name shares one on-disk profile, so a named session isolates nothing; remove ${profileKeys.length === 1 ? 'that key' : 'both keys'} from "browser" (keep "headless": true), with the owner's OK. Doctrine: .agents/skills/agentic-qa-core/references/browser-sessions.md, .context/ADR/ADR-0008-browser-session-isolation.md`,
+      suggested: 'merge',
+      blocking: false,
+      side: 'kept',
+    });
+  }
+
   if (input.pbiCache && input.pbiCache.tracked > 0) {
+    const testSpecs = input.pbiCache.testSpecs ?? 0;
+    const specsClause = testSpecs > 0
+      ? `; ${testSpecs} of them sit under a test-specs/ directory ([COMMIT] tier everywhere else in the doctrine): the recipe names them before untracking anything`
+      : '';
     findings.push({
       surface: 'components',
       path: '.context/PBI/',
-      evidence: `${input.pbiCache.tracked} tracked path(s) still in git (Jira cache, gitignored by design); migration recipe saved to ${input.pbiCache.recipePath}`,
+      evidence: `${input.pbiCache.tracked} tracked path(s) still in git (Jira cache, gitignored by design); an ignore rule does not untrack what is already in the index; run the recipe${specsClause}; migration recipe saved to ${input.pbiCache.recipePath}`,
       suggested: 'decide',
       blocking: false,
     });
@@ -952,6 +1615,66 @@ export function collectParityFindings(input: ParityInput): ParityFinding[] {
       suggested: 'decide',
       blocking: false,
     });
+  }
+
+  // The permission-list and hook merges are additive and already decided:
+  // they ran, and this row says what they added so nothing is a surprise.
+  // Informational, never blocking: an allow entry a project does not want is
+  // re-expressible in `deny`, a deny entry in `updater.declined_denies` and a
+  // hook command in `updater.declined_hooks`, so the row asks nothing of it.
+  // A hook left out because its script is missing is news (the compat check
+  // may still name it), so it raises the row on its own; a declined entry
+  // alone is the project's standing decision and does not.
+  const allowAdded = input.allowListAdded ?? [];
+  const denyAdded = input.denyListAdded ?? [];
+  const denyDeclined = input.denyListDeclined ?? [];
+  const hooksAdded = input.hooksAdded ?? [];
+  const hooksDeclined = input.hooksDeclined ?? [];
+  const hooksSkipped = input.hooksSkipped ?? [];
+  const folded = input.settingsDuplicatesFolded ?? [];
+  if (allowAdded.length > 0 || denyAdded.length > 0 || hooksAdded.length > 0 || hooksSkipped.length > 0 || folded.length > 0) {
+    const parts: string[] = [];
+    if (allowAdded.length > 0) { parts.push(`${allowAdded.length} permission(s) added to permissions.allow: ${allowAdded.join(', ')}`); }
+    if (denyAdded.length > 0) { parts.push(`${denyAdded.length} rule(s) added to permissions.deny: ${denyAdded.join(', ')}`); }
+    if (denyDeclined.length > 0) { parts.push(`declined via ${DECLINED_DENIES_KEY}: ${denyDeclined.join(', ')}`); }
+    if (hooksAdded.length > 0) { parts.push(`${hooksAdded.length} hook command(s) added as new groups: ${hooksAdded.join(', ')}`); }
+    if (hooksDeclined.length > 0) { parts.push(`declined via ${DECLINED_HOOKS_KEY}: ${hooksDeclined.join(', ')}`); }
+    if (hooksSkipped.length > 0) { parts.push(`not added, the script they run is missing: ${hooksSkipped.join(', ')}`); }
+    if (folded.length > 0) { parts.push(`repeated key(s) folded into one list (JSON keeps only the last): ${folded.join(', ')}`); }
+    const foldedUnder = (key: string): boolean => folded.some(at => at === key || at.startsWith(`${key}.`) || at.startsWith(`permissions.${key}`));
+    const touched = (key: string): boolean => (key === 'deny' && denyAdded.length > 0) || (key === 'hooks' && hooksAdded.length > 0) || foldedUnder(key);
+    const untouched = `${['deny', 'ask', 'hooks', 'env'].filter(key => !touched(key)).join('/')} untouched`;
+    findings.push({
+      surface: 'components',
+      path: CLAUDE_SETTINGS_FILE,
+      evidence: `informational: ${parts.join('; ')} (set-union with upstream, appended after the project's entries; ${untouched})`,
+      suggested: 'keep project',
+      blocking: false,
+      side: 'kept',
+    });
+  }
+
+  // `opencode.jsonc` is never merged (JSONC with comments, ordered rules where
+  // the last match wins): the upstream deny rules it lacks become one row with
+  // the block to paste. A pattern the project lists with any action is its
+  // decision and never reported. Folds onto the file's drift or MCP row when
+  // one exists: one row per path.
+  // Not for a project that dropped OpenCode (ADR-0012), even when it kept the file.
+  const opencodeGap = declaredHarnesses(input.root).harnesses.includes('opencode') ? opencodeDenyGap(input.root, input.upstreamDir) : null;
+  if (opencodeGap !== null) {
+    const count = opencodeGap.missing.reduce((n, m) => n + m.patterns.length, 0);
+    const rules = opencodeGap.missing.map(m => `${m.tool}: ${m.patterns.join(', ')}`).join('; ');
+    const evidence = `permission lacks ${count} upstream deny rule(s) (${rules}); never rewritten: paste the block from the saved prompt, or list a pattern yourself with another action to decline it`;
+    const note = [`Deny rules to paste into ${OPENCODE_SETTINGS_FILE}:`, '', '```jsonc', opencodeGap.block, '```'].join('\n');
+    const prior = findings.find(f => f.path === OPENCODE_SETTINGS_FILE);
+    if (prior) {
+      prior.evidence = `${prior.evidence}; ${evidence}`;
+      prior.suggested = 'merge';
+      prior.note = [prior.note, note].filter(Boolean).join('\n\n');
+    }
+    else {
+      findings.push({ surface: watchedSurface(OPENCODE_SETTINGS_FILE), path: OPENCODE_SETTINGS_FILE, evidence, suggested: 'merge', blocking: false, side: 'kept', note });
+    }
   }
 
   // 7. Synced files the project had edited and this run overwrote: the edit
@@ -971,11 +1694,12 @@ export function collectParityFindings(input: ParityInput): ParityFinding[] {
     const isSkillPath = edit.path.startsWith('.agents/skills/');
     const registryHint = isSkillPath ? '; after restoring, run bun run skills:registry' : '';
     findings.push({
-      surface: isSkillPath ? 'skills' : 'components',
+      surface: isSkillPath ? 'skills' : edit.path.startsWith('.agents/instructions/') ? 'instructions' : 'components',
       path: edit.path,
       evidence: `project edit overwritten; backup: ${backupRel ?? 'none'}; ${diff ? `${formatStats(stats)} vs applied` : 'backup unavailable'}; ${PROTECT_HINT}${registryHint}`,
       suggested: 'merge',
       blocking: false,
+      side: 'overwritten',
       diff: diff || undefined,
       note: protectNote(edit.path),
     });
@@ -990,6 +1714,7 @@ export function collectParityFindings(input: ParityInput): ParityFinding[] {
       evidence: `${kept.section}.${kept.key}: project value kept; upstream differs`,
       suggested: 'decide',
       blocking: false,
+      side: 'kept',
       detail: `project (kept):\n  ${kept.localValue}\nupstream:\n  ${kept.upstreamValue}`,
     });
   }
@@ -1070,22 +1795,31 @@ function escapeCell(text: string): string {
 export function buildParityPrompt(findings: ParityFinding[], meta: ParityMeta): string {
   const upstream = meta.upstreamSha ? meta.upstreamSha.slice(0, 7) : 'unknown';
   const lock = meta.lockSha ? meta.lockSha.slice(0, 7) : 'none';
-  const rows = findings.map(f => `| ${f.id} | ${SURFACE_LABEL_EN[f.surface]} | ${escapeCell(f.path)} | ${escapeCell(f.evidence)} | ${f.suggested} |`);
+  const dryRun = meta.dryRun === true;
+  const evidenceCell = (f: ParityFinding): string => {
+    const mark = dryRun && resolvedByApply(f) ? ` ${RESOLVED_BY_APPLY_MARK}` : '';
+    return `${escapeCell(f.evidence)}${mark}`;
+  };
+  const rows = findings.map(f => `| ${f.id} | ${SURFACE_LABEL_EN[f.surface]} | ${escapeCell(f.path)} | ${f.side ?? '-'} | ${evidenceCell(f)} | ${f.suggested} |`);
   // A GitHub handle has a raw URL per file; a local clone (UPEX_TEMPLATE_REPO=/path) does not.
   const isGitHubHandle = /^[\w.-]+\/[\w.-]+$/.test(meta.templateRepo);
   const copies = isGitHubHandle ? `; upstream copies: https://raw.githubusercontent.com/${meta.templateRepo}/main/<path>` : '';
   return [
-    `Parity review after \`bun run up\` (upstream ${meta.templateRepo}@${upstream}, project lock ${lock}).`,
+    `Parity review after \`bun run up${dryRun ? ' --dry-run' : ''}\` (upstream ${meta.templateRepo}@${upstream}, project lock ${lock}).`,
     'Present the table below to the user, one row per finding, and WAIT for a decision per row',
     '(keep project | take upstream | merge) BEFORE editing anything. Then apply only the chosen rows,',
     'run tests -> types -> lint, and report.',
     `Full diffs per row live in ${meta.promptFile}${copies}.`,
-    'Rows marked BLOCKING failed a compatibility contract and must be resolved for `bun run agents:compat:check` to pass.',
+    'Rows marked BLOCKING failed a compatibility contract, or carry a hunk another file of this release depends on (the row says which gate proves it); both must be resolved before `bun run agents:compat:check` and the project gates pass.',
+    '`Now` is the copy on disk today: `kept` = the project\'s (a protected or project-declared path, never overwritten), `overwritten` = upstream\'s (the project\'s version is in the backup the row names), `-` = the row is not a contest between two copies.',
     '`take upstream` is suggested only where the project lacks the content entirely; a row naming project-only servers, keys, headings or edits suggests `merge` (its backup or values are in the saved file).',
     'A `merge` row says what to port (upstream additions) and what to keep (project-only). A row labelled `informational` is a project identity file compared by keys only: merge = add the listed keys, never the values.',
+    ...(dryRun
+      ? [`Nothing was applied: rows marked ${RESOLVED_BY_APPLY_MARK} are the ones the real run fixes by itself (it rebuilds the generated surfaces), so this table lists MORE work than the run that applies. Do not plan manual edits from them.`]
+      : []),
     '',
-    '| # | Surface | File | What differs (evidence) | Suggested |',
-    '|---|---|---|---|---|',
+    '| # | Surface | File | Now | What differs (evidence) | Suggested |',
+    '|---|---|---|---|---|---|',
     ...rows.map((row, i) => (findings[i].blocking ? row.replace(/ \|$/, ' (BLOCKING) |') : row)),
     '',
     'Post-merge: bun run agents:compat && bun run agents:compat:check && bun run repo:check',

@@ -1,5 +1,5 @@
 import type { ParityFinding, ParityInput, ParityMeta } from './updater-parity.ts';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 
 import { dirname, join } from 'node:path';
@@ -13,18 +13,31 @@ import {
   collectParityFindings,
   compatErrorSuggestion,
   compatErrorSurface,
+  CONFIG_BLOCK_READERS,
   configEntries,
   configKeyDelta,
   configKeys,
   describeWatchedFile,
   diffNoIndex,
   diffStats,
+  frameworkGatesNote,
+  harnessLevelMcpNote,
+  legacyPlaywrightProfileKeys,
   lintStagedNoStashNote,
   markdownSectionDelta,
+  missingConfigBlocks,
+  PATH_PREREQUISITES,
   persistArchivedSkillMarkers,
+  PLAYWRIGHT_CLI_CONFIG,
+  prerequisiteFor,
   protectNote,
   readGitStrategyStamp,
   renderParityReport,
+  RESOLVED_BY_APPLY_MARK,
+  resolvedByApply,
+  RETIRED_ENVRC,
+  retiredHarnessScripts,
+  retiredMcpNote,
   runVerdict,
   strictVerdict,
   structuralEvidence,
@@ -60,11 +73,7 @@ const META: ParityMeta = {
   promptFile: '.agents/prompts/parity-plan.md',
 };
 
-const MANIFEST = JSON.stringify({
-  version: 1,
-  wrapperHosts: ['claude', 'opencode'],
-  aliases: [{ alias: 'sync-ai-memory', skill: 'sync-ai-memory', mode: 'default', forwardArguments: true }],
-});
+const SHADOW_ERROR = 'Command shadows skill acli: .claude/commands/acli.md; a command with a skill\'s name hides the skill\'s instructions (`bun run agents:compat` moves it to .backups/shadowing-commands/)';
 
 /** A project + upstream pair with every finding type present. */
 function fixture(): { root: string, upstream: string, input: ParityInput } {
@@ -83,16 +92,12 @@ function fixture(): { root: string, upstream: string, input: ParityInput } {
   write(root, '.codex/config.toml', '[mcp_servers.context7]\ncommand = "x"\n\n[mcp_servers.acme]\ncommand = "y"\n');
   write(upstream, '.codex/config.toml', '[mcp_servers.context7]\ncommand = "x"\n\n[mcp_servers.n8n]\ncommand = "z"\n');
 
-  // Commands: one manifest wrapper, one overlay wrapper, one rogue wrapper per
-  // host. The compat check names the Claude one; the OpenCode one is found by
-  // the disk scan alone (as when the check could not run).
-  write(upstream, '.agents/compatibility/command-aliases.json', MANIFEST);
-  write(root, '.agents/compatibility/command-aliases.json', MANIFEST);
+  // Commands: the retired alias overlay is still on disk, its command is the
+  // project's own now; one command carries a skill's name and fails the
+  // contract, another was already moved aside by the compat hook this run.
   write(root, '.agents/compatibility/command-aliases.project.json', JSON.stringify({ version: 1, aliases: [{ alias: 'acme-deploy' }] }));
-  write(root, '.claude/commands/sync-ai-memory.md', 'wrapper\n');
-  write(root, '.claude/commands/acme-deploy.md', 'overlay wrapper\n');
-  write(root, '.claude/commands/rogue.md', 'nobody produced this\n');
-  write(root, '.opencode/commands/rogue.md', 'nobody produced this\n');
+  write(root, '.claude/commands/acme-deploy.md', 'project command\n');
+  write(root, '.claude/commands/acli.md', 'shadows the acli skill\n');
 
   // Skills: the migration archived a colliding copy.
   write(root, '.agents/skills/acli/SKILL.md', '---\nname: acli\n---\nupstream body\n');
@@ -112,14 +117,14 @@ function fixture(): { root: string, upstream: string, input: ParityInput } {
     compatErrors: [
       'MCP n8n missing from codex: declared in .mcp.json, absent from .codex/config.toml',
       'MCP acme present in codex only: declare it in .mcp.json or remove it from .codex/config.toml',
-      'claude command wrapper contains workflow prose: .claude/commands/sync-ai-memory.md',
-      'Command wrapper not declared in any manifest: .claude/commands/rogue.md; add it to .agents/compatibility/command-aliases.project.json or delete it',
+      SHADOW_ERROR,
       'claude hook command must be exactly: node "$CLAUDE_PROJECT_DIR/.agents/hooks/personality-reinject.mjs"',
     ],
     archivedSkills: ['acli'],
     archivedSkillsDir: join(root, '.template/pre-agents-migration/skills'),
     heldBack: [{ component: 'cli', lockCommit: 'deadbeefcafe' }, { component: 'docs', lockCommit: null }],
     envNewKeys: ['N8N_API_KEY', 'RESEND_API_KEY'],
+    shadowingCommandsMoved: ['.opencode/commands/acli.md'],
   };
   return { root, upstream, input };
 }
@@ -172,12 +177,21 @@ describe('section-level evidence', () => {
   });
 
   test('key delta separates upstream additions from project-only keys', () => {
-    expect(configKeyDelta(['a', 'b.x'], ['a', 'b.y'])).toEqual({ added: ['b.y'], projectOnly: ['b.x'], changed: [], changedDetail: {} });
+    expect(configKeyDelta(['a', 'b.x'], ['a', 'b.y'])).toEqual({ added: ['b.y'], projectOnly: ['b.x'], changed: [], changedDetail: {}, changedArrays: [], addedObjects: [] });
     // With values (Maps) the shared keys whose values differ are named; a top
     // key with object children is judged through its children only.
     const mine = configEntries('{"a":1,"b":{"x":1,"y":[1]},"c":{"z":1}}', 'x.json')!;
     const theirs = configEntries('{"a":2,"b":{"x":1,"y":[2]},"c":{"z":1}}', 'x.json')!;
-    expect(configKeyDelta(mine, theirs)).toEqual({ added: [], projectOnly: [], changed: ['a', 'b.y'], changedDetail: {} });
+    // An array on both sides is reported by its ELEMENTS, and listed in
+    // `changedArrays` so the evidence never calls an appended entry a changed value.
+    expect(configKeyDelta(mine, theirs)).toEqual({
+      added: [],
+      projectOnly: [],
+      changed: ['a', 'b.y'],
+      changedDetail: { 'b.y': 'added: ["2"], removed: ["1"]' },
+      changedArrays: ['b.y'],
+      addedObjects: [],
+    });
   });
 
   test('watched-file evidence names sections for markdown and keys for config, plus hunk counts', () => {
@@ -225,8 +239,22 @@ describe('section-level evidence', () => {
   test('structural (identity) files: a row only for upstream additions, labelled informational; values are never compared', () => {
     expect(structuralEvidence('.agents/project.yaml', 'project:\n  name: acme\n', 'project:\n  name: null\n')).toBeNull();
     expect(structuralEvidence('.agents/project.yaml', 'project:\n  name: acme\n  extra: 1\n', 'project:\n  name: null\n')).toBeNull();
+    // A WHOLE new block is ONE decision, not the block plus each of its
+    // leaves: per-key reporting on a project 46 paths behind is unreadable.
     expect(structuralEvidence('.agents/project.yaml', 'project:\n  name: acme\n', 'project:\n  name: null\nupdater:\n  protected_paths: []\n'))
-      .toBe('informational: upstream added 2 keys: "updater", "updater.protected_paths"; merge = add the new keys, values are project identity and never compared');
+      .toBe('informational: upstream added 1 key path: "updater"; merge = add the new key paths, values are project identity and never compared');
+    // Depth 3+, which the 2-level walk could not see at all. This is the whole
+    // point of the deep walk: 46 of 93 paths in the real file live down here,
+    // `git_strategy.policy.direct_push_to_protected` among them.
+    expect(structuralEvidence('.agents/project.yaml', 'git_strategy:\n  policy:\n    admin_bypass: true\n', 'git_strategy:\n  policy:\n    admin_bypass: true\n    direct_push_to_protected: confirm\n'))
+      .toBe('informational: upstream added 1 key path: "git_strategy.policy.direct_push_to_protected"; merge = add the new key paths, values are project identity and never compared');
+    // Invariant 2: an unparseable project file says so instead of quietly
+    // comparing a narrower key set and reporting nothing to do.
+    expect(structuralEvidence('.agents/project.yaml', 'project:\n  : : :\n', 'project:\n  name: null\n'))
+      .toContain('does not parse');
+    // `.agents/jira-required.yaml` deliberately stays on the 2-level walk.
+    expect(structuralEvidence('.agents/jira-required.yaml', 'required:\n  a: 1\n', 'required:\n  a: 1\n  b: 2\n'))
+      .toBe('informational: upstream added 1 key: "required.b"; merge = add the new keys, values are project identity and never compared');
     expect(structuralEvidence('x.md', '## A\n\nmine\n', '## A\n\ntheirs\n')).toBeNull();
     expect(structuralEvidence('x.md', '## A\n', '## A\n\n## B\n')).toBe('informational: upstream added 1 heading: "B"; merge = add the new headings, values are project identity and never compared');
   });
@@ -234,16 +262,14 @@ describe('section-level evidence', () => {
 
 describe('compat error classification', () => {
   test('surface and suggestion follow the wording', () => {
-    expect(compatErrorSurface('claude command wrapper contains workflow prose: .claude/commands/x.md')).toBe('commands');
-    expect(compatErrorSuggestion('claude command wrapper contains workflow prose: .claude/commands/x.md')).toBe('run agents:compat');
+    // A command with a skill's name is a skills problem, and the repair moves it.
+    expect(compatErrorSurface(SHADOW_ERROR)).toBe('skills');
+    expect(compatErrorSuggestion(SHADOW_ERROR)).toBe('run agents:compat');
     expect(compatErrorSurface('Claude skills alias missing: .claude/skills')).toBe('skills');
     expect(compatErrorSuggestion('Claude skills alias missing: .claude/skills')).toBe('run agents:compat');
     expect(compatErrorSurface('codex hook command must be exactly: …')).toBe('hooks');
     expect(compatErrorSuggestion('codex hook command must be exactly: …')).toBe('take upstream');
     expect(compatErrorSurface('opencode MCP n8n mismatch: expected {…}, found {…}')).toBe('mcp');
-    const stray = 'Command wrapper not declared in any manifest: .claude/commands/stray.md; add it to .agents/compatibility/command-aliases.project.json or delete it';
-    expect(compatErrorSurface(stray)).toBe('commands');
-    expect(compatErrorSuggestion(stray)).toBe('add to overlay');
   });
 });
 
@@ -284,7 +310,7 @@ describe('collectParityFindings', () => {
     expect(agents.evidence).toContain('port upstream additions only: "5.5 MULTI-HARNESS"');
     expect(agents.evidence).toContain('keep project-only heading: "9. ACME ONLY"');
     expect(agents.evidence).toContain('body differs in 1: "1. RULES"');
-    expect(agents.evidence).toMatch(/\d+ hunks? \(\+\d+\/-\d+\)$/);
+    expect(agents.evidence).toMatch(/\d+ hunks? \(\+\d+\/-\d+\); memory$/);
     expect(agents.diff).toContain('@@');
 
     const settings = byPath('.claude/settings.json');
@@ -299,7 +325,7 @@ describe('collectParityFindings', () => {
     const codex = byPath('.codex/config.toml');
     expect(codex.surface).toBe('mcp');
     expect(codex.blocking).toBe(true);
-    expect(codex.evidence).toMatch(/^missing: n8n \(declared in \.mcp\.json\); only here: acme \(not in \.mcp\.json\): declare them in \.mcp\.json and opencode\.jsonc, or remove them; port upstream additions only: "mcp_servers\.n8n"; keep project-only key: "mcp_servers\.acme"; \d+ hunks? \(\+\d+\/-\d+\)$/);
+    expect(codex.evidence).toMatch(/^missing: n8n \(declared in \.mcp\.json\); only here: acme \(not in \.mcp\.json\): declare them in \.mcp\.json and opencode\.jsonc, or remove them; port upstream additions only: "mcp_servers\.n8n"; keep project-only key: "mcp_servers\.acme"; \d+ hunks? \(\+\d+\/-\d+\); codex mcp registry$/);
     // Following `take upstream` literally would delete `acme`, the project's own
     // server: a row naming project-only content always suggests `merge`.
     expect(codex.suggested).toBe('merge');
@@ -307,10 +333,10 @@ describe('collectParityFindings', () => {
     expect(findings.filter(f => f.path === '.codex/config.toml')).toHaveLength(1);
     expect(findings.filter(f => f.surface === 'mcp')).toHaveLength(1);
 
-    const wrapper = byPath('.claude/commands/sync-ai-memory.md');
-    expect(wrapper.surface).toBe('commands');
-    expect(wrapper.blocking).toBe(true);
-    expect(wrapper.suggested).toBe('run agents:compat');
+    const shadow = byPath('.claude/commands/acli.md');
+    expect(shadow.surface).toBe('skills');
+    expect(shadow.blocking).toBe(true);
+    expect(shadow.suggested).toBe('run agents:compat');
 
     const hook = findings.find(f => f.surface === 'hooks' && f.blocking);
     expect(hook?.suggested).toBe('take upstream');
@@ -321,11 +347,18 @@ describe('collectParityFindings', () => {
     expect(archived.suggested).toBe('decide');
     expect(archived.diff).toContain('project body');
 
-    // A stray wrapper is ONE row per path: the one the compat check named is
-    // blocking, the one only the disk scan found is not; both say `add to overlay`.
-    const rogue = findings.filter(f => f.surface === 'commands' && f.suggested === 'add to overlay');
-    expect(rogue.map(f => [f.path, f.blocking])).toEqual([['.claude/commands/rogue.md', true], ['.opencode/commands/rogue.md', false]]);
-    for (const f of rogue) { expect(f.evidence).toBe('wrapper not produced by .agents/compatibility/command-aliases.json nor .agents/compatibility/command-aliases.project.json'); }
+    // The command the hook moved this run: informational, names the backup.
+    const moved = byPath('.opencode/commands/acli.md');
+    expect(moved.surface).toBe('skills');
+    expect(moved.blocking).toBe(false);
+    expect(moved.evidence).toContain('moved to .backups/shadowing-commands/.opencode/commands/acli.md');
+
+    // The retired overlay: ONE informational row; the command it declared is
+    // the project's own file now and never a row.
+    const overlay = byPath('.agents/compatibility/command-aliases.project.json');
+    expect(overlay.surface).toBe('components');
+    expect(overlay.blocking).toBe(false);
+    expect(overlay.evidence).toMatch(/^informational: command aliases are retired/);
     expect(findings.some(f => f.path === '.claude/commands/acme-deploy.md')).toBe(false);
 
     const held = byPath('.template/boilerplate.lock.json');
@@ -345,9 +378,7 @@ describe('collectParityFindings', () => {
   test('a fully aligned project yields zero findings', () => {
     const root = temporaryRoot();
     const upstream = temporaryRoot();
-    write(root, '.agents/compatibility/command-aliases.json', MANIFEST);
-    write(upstream, '.agents/compatibility/command-aliases.json', MANIFEST);
-    write(root, '.claude/commands/sync-ai-memory.md', 'wrapper\n');
+    write(root, '.claude/commands/acme-deploy.md', 'a project command with its own name\n');
     write(root, '.agents/project.yaml', 'git_strategy:\n  strategy: solo-main\n  meta:\n    strategy_source: chosen\n');
     const findings = collectParityFindings({
       root,
@@ -362,12 +393,41 @@ describe('collectParityFindings', () => {
     expect(findings).toEqual([]);
   });
 
-  test('stray wrappers need a manifest to compare against', () => {
+  test('a compat warning is one informational row on its file, never blocking, folded into an error row on the same file', () => {
     const root = temporaryRoot();
-    write(root, '.claude/commands/anything.md', 'x\n');
-    const findings = collectParityFindings({
+    const upstream = temporaryRoot();
+    write(root, '.agents/project.yaml', 'git_strategy:\n  strategy: solo-main\n  meta:\n    strategy_source: chosen\n');
+    const warning = 'codex MCP dbhub starts without the .env loader in .codex/config.toml: set command = "bunx" and put [...] before the current command and args (reason).';
+    const base = {
       root,
-      upstreamDir: temporaryRoot(),
+      upstreamDir: upstream,
+      drift: [],
+      archivedSkills: [],
+      archivedSkillsDir: join(root, '.template/pre-agents-migration/skills'),
+      heldBack: [],
+      envNewKeys: [],
+    };
+
+    const alone = collectParityFindings({ ...base, compatErrors: [], compatWarnings: [warning] });
+    expect(alone).toHaveLength(1);
+    expect(alone[0]).toMatchObject({ surface: 'mcp', path: '.codex/config.toml', blocking: false, side: 'kept' });
+    expect(alone[0].evidence).toBe(`informational: ${warning}`);
+
+    const error = 'codex MCP openapi mismatch: expected {"a":1}, found {"a":2}';
+    const folded = collectParityFindings({ ...base, compatErrors: [error], compatWarnings: [warning] });
+    expect(folded).toHaveLength(1);
+    expect(folded[0].path).toBe('.codex/config.toml');
+    expect(folded[0].blocking).toBe(true);
+    expect(folded[0].evidence).toBe(`${error}; informational: ${warning}`);
+  });
+
+  test('a leftover .envrc gets one informational row and is never touched; none without it', () => {
+    const root = temporaryRoot();
+    const upstream = temporaryRoot();
+    write(root, '.agents/project.yaml', 'git_strategy:\n  strategy: solo-main\n  meta:\n    strategy_source: chosen\n');
+    const findings = (): ReturnType<typeof collectParityFindings> => collectParityFindings({
+      root,
+      upstreamDir: upstream,
       drift: [],
       compatErrors: [],
       archivedSkills: [],
@@ -375,7 +435,89 @@ describe('collectParityFindings', () => {
       heldBack: [],
       envNewKeys: [],
     });
-    expect(findings.filter(f => f.surface === 'commands')).toEqual([]);
+
+    expect(findings()).toEqual([]);
+
+    write(root, RETIRED_ENVRC, 'dotenv_if_exists .env\nexport MY_OWN_PATH=/opt/tool\n');
+    const rows = findings();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ surface: 'components', path: '.envrc', blocking: false, suggested: 'keep project' });
+    expect(rows[0].evidence).toStartWith('informational: upstream retired direnv');
+    expect(rows[0].evidence).toContain('Left untouched');
+    expect(readFileSync(join(root, RETIRED_ENVRC), 'utf8')).toBe('dotenv_if_exists .env\nexport MY_OWN_PATH=/opt/tool\n');
+  });
+
+  test('a retired harness launch script gets one informational row and package.json is never touched', () => {
+    const root = temporaryRoot();
+    const upstream = temporaryRoot();
+    write(root, '.agents/project.yaml', 'git_strategy:\n  strategy: solo-main\n  meta:\n    strategy_source: chosen\n');
+    const findings = (): ReturnType<typeof collectParityFindings> => collectParityFindings({
+      root,
+      upstreamDir: upstream,
+      drift: [],
+      compatErrors: [],
+      archivedSkills: [],
+      archivedSkillsDir: join(root, '.template/pre-agents-migration/skills'),
+      heldBack: [],
+      envNewKeys: [],
+    });
+
+    // A project's own `claude` script with another job is not the retired one.
+    write(root, 'package.json', `${JSON.stringify({ scripts: { claude: 'echo hi', test: 'playwright test' } })}\n`);
+    expect(findings()).toEqual([]);
+
+    const pkg = `${JSON.stringify({ scripts: {
+      claude: 'bun --no-env-file scripts/launch.ts claude',
+      codex: 'dotenv -o -e .env -- codex',
+      opencode: 'opencode',
+    } })}\n`;
+    write(root, 'package.json', pkg);
+    expect(retiredHarnessScripts(root)).toEqual(['claude', 'codex']);
+    const rows = findings();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ surface: 'package', path: 'package.json', blocking: false, suggested: 'keep project' });
+    expect(rows[0].evidence).toStartWith('informational: upstream retired the harness launch scripts `claude`, `codex`');
+    expect(rows[0].evidence).toContain('Left untouched');
+    expect(readFileSync(join(root, 'package.json'), 'utf8')).toBe(pkg);
+  });
+
+  test('a playwright-cli config with the old shared profile gets one informational row; a clean, absent or broken one gets none', () => {
+    const root = temporaryRoot();
+    const upstream = temporaryRoot();
+    write(root, '.agents/project.yaml', 'git_strategy:\n  strategy: solo-main\n  meta:\n    strategy_source: chosen\n');
+    const findings = (): ReturnType<typeof collectParityFindings> => collectParityFindings({
+      root,
+      upstreamDir: upstream,
+      drift: [],
+      compatErrors: [],
+      archivedSkills: [],
+      archivedSkillsDir: join(root, '.template/pre-agents-migration/skills'),
+      heldBack: [],
+      envNewKeys: [],
+    });
+
+    expect(legacyPlaywrightProfileKeys(root)).toEqual([]);
+    expect(findings()).toEqual([]);
+
+    write(root, PLAYWRIGHT_CLI_CONFIG, JSON.stringify({ browser: { browserName: 'chromium', isolated: false, userDataDir: '.playwright/user-data' } }));
+    expect(legacyPlaywrightProfileKeys(root)).toEqual(['browser.isolated: false', 'browser.userDataDir']);
+    const both = findings();
+    expect(both).toHaveLength(1);
+    expect(both[0]).toMatchObject({ surface: 'components', path: '.playwright/cli.config.json', blocking: false, side: 'kept', suggested: 'merge' });
+    expect(both[0].evidence).toStartWith('informational: browser.isolated: false and browser.userDataDir still set');
+    expect(both[0].evidence).toContain('remove both keys');
+    expect(both[0].evidence).toContain('browser-sessions.md');
+    expect(both[0].evidence).toContain('ADR-0008');
+
+    write(root, PLAYWRIGHT_CLI_CONFIG, JSON.stringify({ browser: { userDataDir: '/tmp/x' } }));
+    expect(findings()[0].evidence).toContain('remove that key');
+
+    // `isolated: true` is not the legacy shape; only `false` shares a profile.
+    write(root, PLAYWRIGHT_CLI_CONFIG, JSON.stringify({ browser: { isolated: true, launchOptions: { headless: true } } }));
+    expect(findings()).toEqual([]);
+
+    write(root, PLAYWRIGHT_CLI_CONFIG, '{ not json');
+    expect(findings()).toEqual([]);
   });
 
   test('archived skills nudge once: this run, plus unreported archive entries, until their marker exists', () => {
@@ -451,11 +593,14 @@ describe('the pre-commit hook carries the --no-stash fix downstream', () => {
     expect(buildParityFileBody(findings, META)).toContain('+bunx lint-staged --no-stash');
   });
 
-  test('a hook that already has the flag drifts without the note', () => {
+  test('a hook that already has the flag and sources the gates drifts without a note', () => {
     const root = temporaryRoot();
     const upstream = temporaryRoot();
-    write(root, '.husky/pre-commit', 'bunx lint-staged --no-stash\nbun run types:check\n');
-    write(upstream, '.husky/pre-commit', 'bunx lint-staged --no-stash\nbun run types:check\nbun run vars:check\n');
+    // Both adoption nudges satisfied: the flag is there AND the hook sources the
+    // synced gates file, so the only thing left is ordinary drift.
+    const adopted = 'bunx lint-staged --no-stash\n. "$(dirname -- "$0")/framework-gates.sh"\nframework_gates_pre_commit\n';
+    write(root, '.husky/pre-commit', adopted);
+    write(upstream, '.husky/pre-commit', `${adopted}bun run project:extra\n`);
 
     const findings = collectParityFindings({
       root,
@@ -475,6 +620,364 @@ describe('the pre-commit hook carries the --no-stash fix downstream', () => {
   });
 });
 
+describe('the doctrine ledger row', () => {
+  function base(root: string, upstream: string): Parameters<typeof collectParityFindings>[0] {
+    return {
+      root,
+      upstreamDir: upstream,
+      drift: [],
+      compatErrors: [],
+      archivedSkills: [],
+      archivedSkillsDir: join(root, '.template/pre-agents-migration/skills'),
+      heldBack: [],
+      envNewKeys: [],
+    };
+  }
+
+  test('with no AGENTS.md drift row of its own it stands alone on Instrucciones', () => {
+    const root = temporaryRoot();
+    const findings = collectParityFindings({ ...base(root, temporaryRoot()), doctrineDebt: 'informational: 2 doctrine section(s) missing' });
+    const row = findings.find(f => f.path === 'AGENTS.md');
+    expect(row!.surface).toBe('instructions');
+    expect(row!.blocking).toBe(false);
+    expect(row!.evidence).toContain('2 doctrine section(s) missing');
+  });
+
+  test('it folds onto the AGENTS.md drift row instead of raising a second one', () => {
+    const root = temporaryRoot();
+    const upstream = temporaryRoot();
+    write(root, 'AGENTS.md', '# Memory\n\n## 1. RULES\n\nmine\n');
+    write(upstream, 'AGENTS.md', '# Memory\n\n## 1. RULES\n\nmine\n\n## 9. DOCTRINE\n\nnew\n');
+    const findings = collectParityFindings({
+      ...base(root, upstream),
+      drift: [{ path: 'AGENTS.md', reason: 'AI memory adapted per project' }],
+      doctrineDebt: 'informational: 1 doctrine section(s) unresolved for 4 run(s)',
+    });
+    const rows = findings.filter(f => f.path === 'AGENTS.md');
+    expect(rows).toHaveLength(1);
+    expect(rows[0].evidence).toContain('unresolved for 4 run(s)');
+    // The ordinary drift evidence is still there: the fold appends, never replaces.
+    expect(rows[0].evidence).toContain('AI memory adapted per project');
+  });
+
+  test('no debt means no row', () => {
+    const root = temporaryRoot();
+    expect(collectParityFindings({ ...base(root, temporaryRoot()), doctrineDebt: null }).find(f => f.path === 'AGENTS.md')).toBeUndefined();
+  });
+});
+
+describe('a missing config block a shipped skill reads blocks the run', () => {
+  // E2: a top-level block upstream added is otherwise `structural` —
+  // informational, never blocking — which is right for project identity and
+  // wrong when a skill in the same release reads the block: it then fails at
+  // runtime, mid-session, instead of here where there is an operator.
+  const READERS = {
+    '.agents/project.yaml': {
+      git_strategy: { skill: '/git-flow-master', requiredBy: 'the protected-branch list and the push policy' },
+    },
+  };
+
+  function findings(projectYaml: string, upstreamYaml: string, readers = READERS): ParityFinding[] {
+    const root = temporaryRoot();
+    const upstream = temporaryRoot();
+    write(root, '.agents/project.yaml', projectYaml);
+    write(upstream, '.agents/project.yaml', upstreamYaml);
+    return collectParityFindings({
+      root,
+      upstreamDir: upstream,
+      drift: [{ path: '.agents/project.yaml', reason: 'per-project identity', structural: true }],
+      compatErrors: [],
+      archivedSkills: [],
+      archivedSkillsDir: join(root, '.template/pre-agents-migration/skills'),
+      heldBack: [],
+      envNewKeys: [],
+      configBlockReaders: readers,
+    });
+  }
+
+  test('the block is missing: the row blocks and names the skill that reads it', () => {
+    const row = findings(
+      'project:\n  name: consumer\n',
+      'project:\n  name: upstream\ngit_strategy:\n  strategy: solo-main\n',
+    ).find(f => f.path === '.agents/project.yaml');
+    expect(row!.blocking).toBe(true);
+    expect(row!.suggested).toBe('merge');
+    expect(row!.evidence).toContain('BLOCKING');
+    expect(row!.evidence).toContain('/git-flow-master');
+    // The values stay the project's: the row asks for the block, not the config.
+    expect(row!.evidence).toContain('adapt its VALUES to this project');
+  });
+
+  test('a block the project HAS stays informational however much its values differ', () => {
+    const rows = findings(
+      'project:\n  name: consumer\ngit_strategy:\n  strategy: sdet\n  protected: [main, staging]\n',
+      'project:\n  name: upstream\ngit_strategy:\n  strategy: solo-main\n  protected: [main]\n',
+    ).filter(f => f.path === '.agents/project.yaml');
+    // Values are project identity: the structural comparison finds no added key,
+    // so nothing escalates. (An unrelated `git` surface row about
+    // `strategy_source` can still be there; it is not this rule's doing.)
+    expect(rows.every(f => !f.blocking)).toBe(true);
+    expect(rows.some(f => f.evidence.includes('BLOCKING'))).toBe(false);
+  });
+
+  test('an undeclared block upstream added is informational, exactly as before', () => {
+    const row = findings(
+      'project:\n  name: consumer\n',
+      'project:\n  name: upstream\nsome_new_block:\n  a: 1\n',
+    ).find(f => f.path === '.agents/project.yaml');
+    expect(row!.blocking).toBe(false);
+    expect(row!.evidence).toContain('informational');
+    expect(row!.evidence).not.toContain('BLOCKING');
+  });
+
+  test('missingConfigBlocks is top-level only and declaration-driven', () => {
+    const project = 'git_strategy:\n  strategy: solo-main\n';
+    const upstream = 'git_strategy:\n  strategy: solo-main\n  policy:\n    direct_push_to_protected: allowed\n';
+    // `policy` is a CHILD of a block the project has: a value-shaped difference,
+    // not the absent-block failure this escalates.
+    expect(missingConfigBlocks('.agents/project.yaml', project, upstream, READERS)).toEqual([]);
+    // A file with no declaration never escalates, whatever it is missing.
+    expect(missingConfigBlocks('.mcp.json', '{}', '{"git_strategy":{}}', READERS)).toEqual([]);
+    // A side that is not a key/value map at all: no guessing. (YAML that merely
+    // fails the parser falls back to a key line-scan by design, so the honest
+    // no-structure case is a document that parses to something else.)
+    expect(missingConfigBlocks('.agents/project.yaml', '- a\n- b\n', 'git_strategy:\n  a: 1\n', READERS)).toEqual([]);
+  });
+
+  test('the shipped declaration names real blocks and real skills', () => {
+    const declared = CONFIG_BLOCK_READERS['.agents/project.yaml'];
+    expect(Object.keys(declared)).toContain('git_strategy');
+    expect(Object.keys(declared)).toContain('orchestration');
+    for (const reader of Object.values(declared)) {
+      expect(reader.skill.startsWith('/')).toBe(true);
+      expect(reader.requiredBy.length).toBeGreaterThan(20);
+    }
+  });
+});
+
+describe('the allow-list merge is reported, never silent', () => {
+  test('an informational Componentes row names every permission the merge added', () => {
+    const root = temporaryRoot();
+    const upstream = temporaryRoot();
+    const findings = collectParityFindings({
+      root,
+      upstreamDir: upstream,
+      drift: [],
+      compatErrors: [],
+      archivedSkills: [],
+      archivedSkillsDir: join(root, '.template/pre-agents-migration/skills'),
+      heldBack: [],
+      envNewKeys: [],
+      allowListAdded: ['Skill(pr-review-lead)', 'Skill(session-handoff)'],
+    });
+    const row = findings.find(f => f.path === '.claude/settings.json');
+    expect(row!.surface).toBe('components');
+    expect(row!.blocking).toBe(false);
+    expect(row!.evidence).toContain('2 permission(s) added');
+    expect(row!.evidence).toContain('Skill(pr-review-lead)');
+    // The row has to say what was NOT touched, or it reads like a file rewrite.
+    expect(row!.evidence).toContain('deny/ask/hooks/env untouched');
+  });
+
+  test('a run that added nothing raises no row at all', () => {
+    const root = temporaryRoot();
+    const findings = collectParityFindings({
+      root,
+      upstreamDir: temporaryRoot(),
+      drift: [],
+      compatErrors: [],
+      archivedSkills: [],
+      archivedSkillsDir: join(root, '.template/pre-agents-migration/skills'),
+      heldBack: [],
+      envNewKeys: [],
+      allowListAdded: [],
+    });
+    expect(findings.find(f => f.path === '.claude/settings.json')).toBeUndefined();
+    // A declined deny alone is the project's standing decision, not news.
+    expect(collectParityFindings({ ...permissionInput(root, temporaryRoot()), denyListDeclined: ['Bash(env)'] })
+      .find(f => f.path === '.claude/settings.json')).toBeUndefined();
+  });
+
+  test('deny additions share the one settings row, with the declined entries named', () => {
+    const root = temporaryRoot();
+    const rows = collectParityFindings({
+      ...permissionInput(root, temporaryRoot()),
+      allowListAdded: ['Skill(pr-review-lead)'],
+      denyListAdded: ['Read(.env)', 'Bash(printenv*)'],
+      denyListDeclined: ['Bash(env)'],
+    }).filter(f => f.path === '.claude/settings.json');
+    expect(rows).toHaveLength(1);
+    expect(rows[0].blocking).toBe(false);
+    expect(rows[0].evidence).toContain('1 permission(s) added to permissions.allow: Skill(pr-review-lead)');
+    expect(rows[0].evidence).toContain('2 rule(s) added to permissions.deny: Read(.env), Bash(printenv*)');
+    expect(rows[0].evidence).toContain('declined via updater.declined_denies: Bash(env)');
+    expect(rows[0].evidence).toContain('ask/hooks/env untouched');
+    expect(rows[0].evidence).not.toContain('deny/ask');
+  });
+
+  test('hook additions, skips and a folded key share the one settings row', () => {
+    const root = temporaryRoot();
+    const rows = collectParityFindings({
+      ...permissionInput(root, temporaryRoot()),
+      hooksAdded: ['PostToolUse(*) node "$CLAUDE_PROJECT_DIR/.agents/hooks/personality-reinject.mjs"'],
+      hooksDeclined: ['PostToolUse(Edit|Write|MultiEdit) node "$CLAUDE_PROJECT_DIR/.agents/hooks/doc-contracts.mjs"'],
+      settingsDuplicatesFolded: ['hooks.PostToolUse'],
+    }).filter(f => f.path === '.claude/settings.json');
+    expect(rows).toHaveLength(1);
+    expect(rows[0].blocking).toBe(false);
+    expect(rows[0].evidence).toContain('1 hook command(s) added as new groups: PostToolUse(*)');
+    expect(rows[0].evidence).toContain('declined via updater.declined_hooks: PostToolUse(Edit|Write|MultiEdit)');
+    expect(rows[0].evidence).toContain('repeated key(s) folded into one list (JSON keeps only the last): hooks.PostToolUse');
+    expect(rows[0].evidence).toContain('deny/ask/env untouched');
+  });
+
+  test('a hook skipped for a missing script raises the row alone; a declined hook alone does not', () => {
+    const root = temporaryRoot();
+    const skipped = collectParityFindings({ ...permissionInput(root, temporaryRoot()), hooksSkipped: ['PostToolUse(*) node "$CLAUDE_PROJECT_DIR/.agents/hooks/gone.mjs"'] })
+      .filter(f => f.path === '.claude/settings.json');
+    expect(skipped).toHaveLength(1);
+    expect(skipped[0].evidence).toContain('not added, the script they run is missing: PostToolUse(*)');
+    expect(collectParityFindings({ ...permissionInput(root, temporaryRoot()), hooksDeclined: ['PostToolUse(*) node x.mjs'] })
+      .find(f => f.path === '.claude/settings.json')).toBeUndefined();
+  });
+});
+
+/** The minimum `collectParityFindings` input for the permission rows. */
+function permissionInput(root: string, upstreamDir: string): Parameters<typeof collectParityFindings>[0] {
+  return {
+    root,
+    upstreamDir,
+    drift: [],
+    compatErrors: [],
+    archivedSkills: [],
+    archivedSkillsDir: join(root, '.template/pre-agents-migration/skills'),
+    heldBack: [],
+    envNewKeys: [],
+  };
+}
+
+describe('the opencode.jsonc deny gap is one paste row, never a rewrite', () => {
+  const upstreamOpencode = '{\n  "permission": {\n    "bash": { "*": "ask", "printenv*": "deny", },\n    "read": { "*.env": "deny" },\n  },\n}\n';
+
+  test('a project lacking upstream denies gets one mcp row with the block in its note', () => {
+    const root = temporaryRoot();
+    const upstream = temporaryRoot();
+    write(upstream, 'opencode.jsonc', upstreamOpencode);
+    write(root, 'opencode.jsonc', '{ "permission": { "bash": { "*": "ask" } } }\n');
+    const rows = collectParityFindings(permissionInput(root, upstream)).filter(f => f.path === 'opencode.jsonc');
+    expect(rows).toHaveLength(1);
+    expect(rows[0].surface).toBe('mcp');
+    expect(rows[0].blocking).toBe(false);
+    expect(rows[0].suggested).toBe('merge');
+    expect(rows[0].side).toBe('kept');
+    expect(rows[0].evidence).toContain('lacks 2 upstream deny rule(s) (bash: printenv*; read: *.env)');
+    expect(rows[0].note).toContain('```jsonc');
+    expect(rows[0].note).toContain('"printenv*": "deny",');
+  });
+
+  test('folds onto the file\'s existing drift row', () => {
+    const root = temporaryRoot();
+    const upstream = temporaryRoot();
+    write(upstream, 'opencode.jsonc', upstreamOpencode);
+    write(root, 'opencode.jsonc', '{ "permission": {} }\n');
+    const rows = collectParityFindings({ ...permissionInput(root, upstream), drift: [{ path: 'opencode.jsonc', reason: 'watched' }] })
+      .filter(f => f.path === 'opencode.jsonc');
+    expect(rows).toHaveLength(1);
+    expect(rows[0].evidence).toContain('upstream deny rule(s)');
+    expect(rows[0].suggested).toBe('merge');
+  });
+
+  test('no gap, no row', () => {
+    const root = temporaryRoot();
+    const upstream = temporaryRoot();
+    write(upstream, 'opencode.jsonc', upstreamOpencode);
+    write(root, 'opencode.jsonc', upstreamOpencode);
+    expect(collectParityFindings(permissionInput(root, upstream)).find(f => f.path === 'opencode.jsonc')).toBeUndefined();
+  });
+});
+
+describe('the husky hooks carry the gates split downstream', () => {
+  // Both hooks are bootstrap-only, so a gate added upstream never reached a
+  // project scaffolded earlier. The gates upstream owns now live in the SYNCED
+  // `.husky/framework-gates.sh`; a hook that does not source it still sees
+  // nothing, and only this row can say so.
+
+  test('the note fires only for a hook that does not source the gates file', () => {
+    const pending = frameworkGatesNote('bunx lint-staged --no-stash\nbun run types:check\n', '.husky/pre-commit');
+    expect(pending).toContain('framework_gates_pre_commit');
+    expect(pending).toContain('if [ -f "$GATES" ]; then');
+    // The pre-push hook is nudged towards its OWN function, not pre-commit's.
+    expect(frameworkGatesNote('bun run lint:check\n', '.husky/pre-push')).toContain('framework_gates_pre_push');
+    // Already adopted: silence.
+    expect(frameworkGatesNote('. "$(dirname -- "$0")/framework-gates.sh"\nframework_gates_pre_push\n', '.husky/pre-push')).toBeNull();
+    // A mention in a comment is not an adoption.
+    expect(frameworkGatesNote('# see framework-gates.sh\nbun run types:check\n', '.husky/pre-commit')).toContain('Adopt the gates split');
+    // commit-msg gets its own function, and the block forwards git's message file.
+    expect(frameworkGatesNote('bunx commitlint --edit "$1"\n', '.husky/commit-msg')).toContain('framework_gates_commit_msg "$1"');
+    expect(frameworkGatesNote('. "$(dirname -- "$0")/framework-gates.sh"\nframework_gates_commit_msg "$1"\n', '.husky/commit-msg')).toBeNull();
+  });
+
+  test('a project that already had its own commit-msg hook gets the row with the block to paste', () => {
+    const root = temporaryRoot();
+    const upstream = temporaryRoot();
+    write(root, '.husky/commit-msg', 'bunx commitlint --edit "$1"\n');
+    write(upstream, '.husky/commit-msg', 'GATES="$(dirname -- "$0")/framework-gates.sh"\nif [ -f "$GATES" ]; then\n  . "$GATES"\n  framework_gates_commit_msg "$1"\nfi\n');
+
+    const findings = collectParityFindings({
+      root,
+      upstreamDir: upstream,
+      drift: [{ path: '.husky/commit-msg', reason: 'project commit-message checks live here' }],
+      compatErrors: [],
+      archivedSkills: [],
+      archivedSkillsDir: join(root, '.template/pre-agents-migration/skills'),
+      heldBack: [],
+      envNewKeys: [],
+    });
+
+    const commitMsg = findings.find(f => f.path === '.husky/commit-msg');
+    expect(commitMsg!.evidence).toContain('does not source .husky/framework-gates.sh');
+    expect(commitMsg!.note).toContain('framework_gates_commit_msg "$1"');
+    expect(commitMsg!.blocking).toBe(false);
+  });
+
+  test('both hooks get the row, and pre-commit can carry both nudges at once', () => {
+    const root = temporaryRoot();
+    const upstream = temporaryRoot();
+    // A pre-split project: every gate inlined, lint-staged without the flag.
+    write(root, '.husky/pre-commit', 'bunx lint-staged\nbun run types:check\n');
+    write(root, '.husky/pre-push', 'bun run format:check && bun run lint:check\n');
+    write(upstream, '.husky/pre-commit', 'bunx lint-staged --no-stash\n. "$(dirname -- "$0")/framework-gates.sh"\nframework_gates_pre_commit\n');
+    write(upstream, '.husky/pre-push', '. "$(dirname -- "$0")/framework-gates.sh"\nframework_gates_pre_push\n');
+
+    const findings = collectParityFindings({
+      root,
+      upstreamDir: upstream,
+      drift: [
+        { path: '.husky/pre-commit', reason: 'project gates live here' },
+        { path: '.husky/pre-push', reason: 'project gates live here' },
+      ],
+      compatErrors: [],
+      archivedSkills: [],
+      archivedSkillsDir: join(root, '.template/pre-agents-migration/skills'),
+      heldBack: [],
+      envNewKeys: [],
+    });
+
+    const preCommit = findings.find(f => f.path === '.husky/pre-commit');
+    expect(preCommit!.evidence).toContain('does not source .husky/framework-gates.sh');
+    // Both nudges land on the same row rather than one hiding the other.
+    expect(preCommit!.evidence).toContain('--no-stash');
+    expect(preCommit!.note).toContain('+bunx lint-staged --no-stash');
+    expect(preCommit!.note).toContain('framework_gates_pre_commit');
+
+    const prePush = findings.find(f => f.path === '.husky/pre-push');
+    expect(prePush!.evidence).toContain('does not source .husky/framework-gates.sh');
+    expect(prePush!.note).toContain('framework_gates_pre_push');
+    // Adoption is a merge the operator reviews, never a silent overwrite.
+    expect(prePush!.blocking).toBe(false);
+  });
+});
+
 describe('renderParityReport', () => {
   test('table has every surface with ok / warn / blocked, prompt carries the WAIT contract, file body carries the diffs', () => {
     const { input } = fixture();
@@ -485,8 +988,7 @@ describe('renderParityReport', () => {
     const state = Object.fromEntries(report.surfaces.map(r => [r.surface, r.state]));
     expect(state).toEqual({
       instructions: 'warn',
-      skills: 'warn',
-      commands: 'blocked',
+      skills: 'blocked',
       hooks: 'blocked',
       mcp: 'blocked',
       env: 'warn',
@@ -495,16 +997,19 @@ describe('renderParityReport', () => {
       git: 'warn',
       gates: 'ok',
     });
-    expect(report.surfaces.map(r => r.label)).toEqual(['Instrucciones y config', 'Skills', 'Comandos', 'Hooks', 'MCP', 'Env', 'Componentes', 'package.json', 'Git', 'Verificación']);
+    expect(report.surfaces.map(r => r.label)).toEqual(['Instrucciones y config', 'Skills', 'Hooks', 'MCP', 'Env', 'Componentes', 'package.json', 'Git', 'Verificación']);
     expect(report.surfaces.find(r => r.surface === 'mcp')?.cell).toBe('1 hallazgo: .codex/config.toml');
 
     const prompt = report.prompt;
     expect(prompt.startsWith('Parity review after `bun run up` (upstream upex-galaxy/agentic-qa-boilerplate@abcdef1, project lock 1234567).')).toBe(true);
     expect(prompt).toContain('WAIT for a decision per row');
     expect(prompt).toContain('(keep project | take upstream | merge) BEFORE editing anything');
-    expect(prompt).toContain('| # | Surface | File | What differs (evidence) | Suggested |');
-    expect(prompt).toContain('| 1 | Instructions | AGENTS.md | port upstream additions only: "5.5 MULTI-HARNESS"');
-    expect(prompt).toMatch(/\| MCP \| \.codex\/config\.toml \| missing: n8n \(declared in \.mcp\.json\); only here: acme \(not in \.mcp\.json\): declare them in \.mcp\.json and opencode\.jsonc, or remove them; port upstream additions only: "mcp_servers\.n8n"[^|]* \| merge \(BLOCKING\) \|/);
+    expect(prompt).toContain('| # | Surface | File | Now | What differs (evidence) | Suggested |');
+    expect(prompt).toContain('| 1 | Instructions | AGENTS.md | kept | port upstream additions only: "5.5 MULTI-HARNESS"');
+    // A watched path is never overwritten; a row that is not a two-copy contest says so with `-`.
+    expect(prompt).toContain('| 10 | Env | .env | - |');
+    expect(prompt).toContain('`Now` is the copy on disk today');
+    expect(prompt).toMatch(/\| MCP \| \.codex\/config\.toml \| kept \| missing: n8n \(declared in \.mcp\.json\); only here: acme \(not in \.mcp\.json\): declare them in \.mcp\.json and opencode\.jsonc, or remove them; port upstream additions only: "mcp_servers\.n8n"[^|]* \| merge \(BLOCKING\) \|/);
     expect(prompt).toContain('`take upstream` is suggested only where the project lacks the content entirely');
     expect(prompt.trimEnd().endsWith('Post-merge: bun run agents:compat && bun run agents:compat:check && bun run repo:check')).toBe(true);
     // Scannable: never the diff itself, never rule numbers.
@@ -540,7 +1045,7 @@ describe('renderParityReport', () => {
       suggested: 'merge',
       blocking: false,
     }], META);
-    expect(prompt).toContain('| 1 | Hooks | .claude/settings.json | a \\| b c | merge |');
+    expect(prompt).toContain('| 1 | Hooks | .claude/settings.json | - | a \\| b c | merge |');
   });
 });
 
@@ -695,21 +1200,23 @@ describe('rows the diff-based table could not see before', () => {
     expect(jira.surface).toBe('instructions');
     expect(jira.suggested).toBe('merge');
     expect(jira.blocking).toBe(false);
-    expect(jira.evidence).toBe('informational: upstream added 1 key: "required.priority"; merge = add the new keys, values are project identity and never compared');
+    expect(jira.evidence).toBe('informational: upstream added 1 key: "required.priority"; merge = add the new keys, values are project identity and never compared; manifest');
     expect(jira.diff).toContain('+  priority:');
   });
 
   test('a drifted file without key structure (a husky hook) reads its hunks; the row is never blocking', () => {
     const root = temporaryRoot();
     const upstream = temporaryRoot();
-    write(root, '.husky/pre-push', '#!/bin/sh\nbun run repo:check\nbun run e2e\n');
-    write(upstream, '.husky/pre-push', '#!/bin/sh\nbun run repo:check\n');
+    // Both copies already source the synced gates file, so the gates-split nudge
+    // stays silent and the evidence is purely the hunk reading under test.
+    write(root, '.husky/pre-push', '#!/bin/sh\n. "$(dirname -- "$0")/framework-gates.sh"\nbun run e2e\n');
+    write(upstream, '.husky/pre-push', '#!/bin/sh\n. "$(dirname -- "$0")/framework-gates.sh"\n');
     const findings = collectParityFindings({ ...base(root, upstream), drift: [{ path: '.husky/pre-push', reason: 'project gates live here' }] });
     expect(findings).toHaveLength(1);
     expect(findings[0].surface).toBe('components');
     expect(findings[0].suggested).toBe('merge');
     expect(findings[0].blocking).toBe(false);
-    expect(findings[0].evidence).toBe('content differs (no key structure): review the hunks in the saved file; 1 hunk (+0/-1)');
+    expect(findings[0].evidence).toBe('content differs (no key structure): review the hunks in the saved file; 1 hunk (+0/-1); project gates live here');
     expect(findings[0].diff).toContain('-bun run e2e');
     // A project-declared path sits on Skills (under .agents/skills/) or Componentes, never on Instrucciones.
     write(root, '.agents/skills/acli/SKILL.md', '## A\n\n## Project note\n');
@@ -724,7 +1231,7 @@ describe('rows the diff-based table could not see before', () => {
       ['.agents/skills/acli/SKILL.md', 'skills', 'keep project'],
       ['scripts/x.ts', 'components', 'merge'],
     ]);
-    expect(declared[0].evidence).toBe('project-only heading: "Project note"; upstream adds nothing; 1 hunk (+0/-2)');
+    expect(declared[0].evidence).toBe('project-only heading: "Project note"; upstream adds nothing; 1 hunk (+0/-2); declared');
   });
 
   test('a package.json key kept at the project value: one row per key, both values in the file body only', () => {
@@ -785,7 +1292,7 @@ describe('MCP registries are compared per server, args and env included', () => 
   test('a nested server object is compared whole; the evidence names the server and the fields that differ', () => {
     const mine = configEntries('{"mcpServers":{"context7":{"command":"npx","args":["-y","@upstash/context7-mcp@1"],"env":{"CONTEXT7_API_KEY":"ref"}}}}', '.mcp.json')!;
     const theirs = configEntries('{"mcpServers":{"context7":{"command":"npx","args":["-y","@upstash/context7-mcp@2"],"env":{"CONTEXT7_API_KEY":"ref"}}}}', '.mcp.json')!;
-    expect(configKeyDelta(mine, theirs)).toEqual({ added: [], projectOnly: [], changed: ['mcpServers.context7'], changedDetail: { 'mcpServers.context7': 'args differ' } });
+    expect(configKeyDelta(mine, theirs)).toEqual({ added: [], projectOnly: [], changed: ['mcpServers.context7'], changedDetail: { 'mcpServers.context7': 'args differ' }, changedArrays: [], addedObjects: [] });
 
     expect(row(
       '{"mcpServers":{"context7":{"command":"npx","args":["a"]},"supabase":{"command":"npx","args":["s"],"env":{"SUPABASE_ACCESS_TOKEN":"ref"}}}}',
@@ -827,9 +1334,261 @@ describe('a git-tracked .context/PBI/ cache is one row on Componentes', () => {
       pbiCache: { tracked: 370, recipePath: '.agents/prompts/pbi-cache-migration.md' },
     });
     expect(findings.map(f => [f.surface, f.path, f.suggested, f.blocking])).toEqual([['components', '.context/PBI/', 'decide', false]]);
-    expect(findings[0].evidence).toBe('370 tracked path(s) still in git (Jira cache, gitignored by design); migration recipe saved to .agents/prompts/pbi-cache-migration.md');
+    // The ignore clause is the row's whole value: the ladder was already at full
+    // parity with upstream while 370 paths stayed tracked, so "fix .gitignore" is
+    // a detour the row must close off.
+    expect(findings[0].evidence).toBe('370 tracked path(s) still in git (Jira cache, gitignored by design); an ignore rule does not untrack what is already in the index; run the recipe; migration recipe saved to .agents/prompts/pbi-cache-migration.md');
     expect(renderParityReport(findings, META).surfaces.find(s => s.surface === 'components')?.cell).toBe('1 hallazgo: .context/PBI/');
     // Nothing tracked: no row.
     expect(collectParityFindings({ root, upstreamDir: temporaryRoot(), drift: [], compatErrors: [], archivedSkills: [], archivedSkillsDir: join(root, 'x'), heldBack: [], envNewKeys: [], pbiCache: null })).toEqual([]);
+  });
+});
+
+describe('a kept file whose hunk gates another file of the same release', () => {
+  // Live finding (Bunkai): upstream shipped a skill declaring the new category
+  // `orchestration` AND the one-line `scripts/lint-skills.ts` hunk that admits
+  // it. The script was in `updater.protected_paths`, so only the skill landed
+  // and `bun run skills:check` failed on a freshly synced repo. The row's whole
+  // evidence was `2 hunks (+1/-5)`, so `keep project` was chosen off it.
+  function base(root: string, upstream: string): ParityInput {
+    return { root, upstreamDir: upstream, drift: [], compatErrors: [], archivedSkills: [], archivedSkillsDir: join(root, 'x'), heldBack: [], envNewKeys: [] };
+  }
+
+  test('the row names the prerequisite and its gate, blocks, and fails --strict', () => {
+    const root = temporaryRoot();
+    const upstream = temporaryRoot();
+    write(root, 'scripts/lint-skills.ts', 'const KNOWN_CATEGORIES = [\'testing\'];\n');
+    write(upstream, 'scripts/lint-skills.ts', 'const KNOWN_CATEGORIES = [\'testing\', \'orchestration\'];\n');
+    const findings = collectParityFindings({
+      ...base(root, upstream),
+      drift: [{ path: 'scripts/lint-skills.ts', reason: 'declared', source: 'project' }],
+    });
+    expect(findings).toHaveLength(1);
+    expect(findings[0].blocking).toBe(true);
+    expect(findings[0].suggested).toBe('merge');
+    expect(findings[0].side).toBe('kept');
+    expect(findings[0].evidence).toContain('PREREQUISITE for this release');
+    expect(findings[0].evidence).toContain('`bun run skills:check`');
+    expect(strictVerdict(true, findings).exitCode).toBe(1);
+    // The prompt's BLOCKING legend covers both kinds now.
+    expect(buildParityPrompt(findings, META)).toContain('carry a hunk another file of this release depends on');
+    // And the terminal table shows the surface as blocked, not merely warned.
+    expect(renderParityReport(findings, META).surfaces.find(s => s.surface === 'components')?.state).toBe('blocked');
+  });
+
+  test('a watched path with no declaration keeps its non-blocking row; the manifest is injectable', () => {
+    const root = temporaryRoot();
+    const upstream = temporaryRoot();
+    write(root, 'allurerc.mjs', 'export default { name: \'acme\' };\n');
+    write(upstream, 'allurerc.mjs', 'export default { name: \'boilerplate\' };\n');
+    const drift = [{ path: 'allurerc.mjs', reason: 'report name adapted per project' }];
+    const plain = collectParityFindings({ ...base(root, upstream), drift });
+    expect(plain[0].blocking).toBe(false);
+    expect(plain[0].side).toBe('kept');
+    expect(plain[0].evidence).not.toContain('PREREQUISITE');
+
+    const declared = collectParityFindings({
+      ...base(root, upstream),
+      drift,
+      prerequisites: { 'allurerc.mjs': { requiredBy: 'the categories dashboard the synced reporter writes', gate: 'bun run report:check' } },
+    });
+    expect(declared[0].blocking).toBe(true);
+    expect(declared[0].evidence).toContain('the categories dashboard the synced reporter writes');
+    expect(declared[0].evidence).toContain('`bun run report:check`');
+  });
+
+  test('the shipped manifest declares the category vocabulary at least', () => {
+    expect(prerequisiteFor('scripts/lint-skills.ts')).not.toBeNull();
+    expect(prerequisiteFor('scripts/lint-skills.ts')?.gate).toBe('bun run skills:check');
+    expect(prerequisiteFor('scripts\\lint-skills.ts')).toBe(PATH_PREREQUISITES['scripts/lint-skills.ts']);
+    expect(prerequisiteFor('README.md')).toBeNull();
+  });
+});
+
+describe('evidence a reader can act on without opening the diff', () => {
+  function base(root: string, upstream: string): ParityInput {
+    return { root, upstreamDir: upstream, drift: [], compatErrors: [], archivedSkills: [], archivedSkillsDir: join(root, 'x'), heldBack: [], envNewKeys: [] };
+  }
+
+  test('an array key reports the elements added and removed, never "values differ"', () => {
+    // Live finding (Bunkai): row 7 read "same keys, values differ at
+    // permissions.allow" while upstream had simply APPENDED two permissions.
+    const evidence = describeWatchedFile(
+      '.claude/settings.json',
+      JSON.stringify({ permissions: { allow: ['Bash(bun *)', 'Bash(git *)'] } }),
+      JSON.stringify({ permissions: { allow: ['Bash(bun *)', 'Bash(orca *)', 'Skill(orca-orchestration)'] } }),
+      '--- a\n+++ b\n@@ -1 +1 @@\n-old\n+new\n',
+    );
+    expect(evidence).toContain('"permissions.allow": added: ["Bash(orca *)", "Skill(orca-orchestration)"], removed: ["Bash(git *)"]');
+    expect(evidence).not.toContain('values differ at');
+  });
+
+  test('a truncated additions list still names every new top-level object', () => {
+    // Live finding (Bunkai): one of the "+3 more" on a CI workflow row was a
+    // 99-line `jobs.XrayImport`, so a 180-line change read as six lines.
+    const project = 'name: regression\non:\n  push: {}\njobs:\n  Smoke:\n    runs-on: ubuntu-latest\n';
+    const upstream = 'name: regression\non:\n  push: {}\nconcurrency:\n  group: ci\n  cancel-in-progress: true\nenv:\n  TZ: UTC\njobs:\n  Smoke:\n    runs-on: ubuntu-latest\n  XrayImport:\n    runs-on: ubuntu-latest\n';
+    const evidence = describeWatchedFile('.github/workflows/regression.yml', project, upstream, '--- a\n+++ b\n@@ -1 +1 @@\n-x\n+y\n');
+    expect(evidence).toBe('upstream added 6 keys: "concurrency", "env", "jobs.XrayImport" (new objects), "concurrency.group", "concurrency.cancel-in-progress", "env.TZ"; nothing project-only; 1 hunk (+1/-1)');
+    // With more scalars than the list shows, the containers still survive the truncation.
+    const many = 'name: regression\non:\n  push: {}\nconcurrency:\n  group: ci\n  cancel-in-progress: true\n  a: 1\n  b: 2\njobs:\n  Smoke:\n    runs-on: ubuntu-latest\n  XrayImport:\n    runs-on: ubuntu-latest\n';
+    const truncated = describeWatchedFile('.github/workflows/regression.yml', project, many, '');
+    expect(truncated).toContain('"concurrency", "jobs.XrayImport" (new objects)');
+    expect(truncated).toContain('+1 more');
+    // Three additions or fewer are all named anyway: no marker, no noise.
+    expect(describeWatchedFile('.mcp.json', '{"mcpServers":{"a":{}}}', '{"mcpServers":{"a":{},"b":{}}}', '')).toContain('upstream added 1 key: "mcpServers.b";');
+  });
+
+  test('each row says which copy is on disk: kept, overwritten, or neither', () => {
+    const root = temporaryRoot();
+    write(root, 'scripts/x.ts', 'upstream\n');
+    write(root, '.backups/update-1/scripts/x.ts', 'ours\n');
+    const findings = collectParityFindings({
+      ...base(root, temporaryRoot()),
+      localEdits: [{ path: 'scripts/x.ts', component: 'scripts', backupPath: join(root, '.backups/update-1/scripts/x.ts') }],
+      packageJsonKept: [{ file: 'package.json', section: 'scripts', key: 'repo:check', localValue: 'a', upstreamValue: 'a && b' }],
+      envNewKeys: ['ORCA_HOME'],
+    });
+    expect(findings.map(f => [f.path, f.side])).toEqual([
+      ['.env', undefined],
+      ['scripts/x.ts', 'overwritten'],
+      ['package.json', 'kept'],
+    ]);
+  });
+});
+
+describe('the dry-run table marks what the apply step resolves by itself', () => {
+  // Live finding (Bunkai): --dry-run reported 22 rows / 12 blocking, the real
+  // run 16 / 6, because applying the files rebuilt the generated surfaces. A
+  // reader planning from the dry-run over-estimated the manual work by 40%.
+  const compat: ParityFinding = { id: 1, surface: 'skills', path: '.claude/skills', evidence: 'skills alias missing', suggested: 'run agents:compat', blocking: true };
+  const drift: ParityFinding = { id: 2, surface: 'instructions', path: 'AGENTS.md', evidence: 'body differs in 1: "1. RULES"', suggested: 'merge', blocking: false, side: 'kept' };
+
+  test('the marked rows are the ones the run rebuilds or re-delivers, and only those', () => {
+    expect(resolvedByApply(compat)).toBe(true);
+    expect(resolvedByApply(drift)).toBe(false);
+    // The six rows the live run resolved by itself: a contract against the old
+    // hook emitter, whose file the apply delivers. Its own path could not be
+    // extracted from the message, so the evidence is what identifies it.
+    expect(resolvedByApply({
+      path: '(compat)',
+      evidence: 'claude hook command must be exactly: node "$CLAUDE_PROJECT_DIR/.agents/hooks/personality-reinject.mjs"',
+      suggested: 'take upstream',
+      blocking: true,
+    })).toBe(true);
+    // A project-owned registry is never re-delivered: the contract needs a human.
+    expect(resolvedByApply({ path: '.codex/config.toml', evidence: 'missing: n8n', suggested: 'take upstream', blocking: true })).toBe(false);
+    expect(resolvedByApply({ path: '.claude/settings.json', evidence: 'stale hook command', suggested: 'take upstream', blocking: true })).toBe(false);
+    // A command that shadows a skill is moved aside by the compat hook.
+    expect(resolvedByApply({ path: '.claude/commands/acli.md', evidence: SHADOW_ERROR, suggested: 'run agents:compat', blocking: true })).toBe(true);
+  });
+
+  test('the mark and its legend appear on a dry-run only', () => {
+    const dry = buildParityPrompt([compat, drift], { ...META, dryRun: true });
+    expect(dry).toContain('Parity review after `bun run up --dry-run`');
+    expect(dry).toContain(`skills alias missing ${RESOLVED_BY_APPLY_MARK}`);
+    expect(dry).toContain('this table lists MORE work than the run that applies');
+    expect(dry).not.toContain(`"1. RULES" ${RESOLVED_BY_APPLY_MARK}`);
+
+    const real = buildParityPrompt([compat, drift], META);
+    expect(real).not.toContain(RESOLVED_BY_APPLY_MARK);
+    expect(real).toContain('Parity review after `bun run up` (upstream');
+  });
+});
+
+describe('retiredMcpNote', () => {
+  const upstream = JSON.stringify({ mcpServers: { context7: { command: 'bunx' } } });
+  test('names a retired server the project keeps, says why, and offers keep or remove', () => {
+    const project = JSON.stringify({ mcpServers: { context7: { command: 'bunx' }, playwright: { command: 'bunx' } } });
+    const note = retiredMcpNote('.mcp.json', project, upstream);
+    expect(note).not.toBeNull();
+    expect(note!.clause).toContain('upstream retired "playwright"');
+    expect(note!.note).toContain('/playwright-cli');
+    expect(note!.note).toContain('keep project');
+  });
+  test('silent when the project dropped it too, when upstream still has it, and on a non-MCP file', () => {
+    expect(retiredMcpNote('.mcp.json', upstream, upstream)).toBeNull();
+    const both = JSON.stringify({ mcpServers: { playwright: { command: 'bunx' } } });
+    expect(retiredMcpNote('.mcp.json', both, both)).toBeNull();
+    expect(retiredMcpNote('AGENTS.md', '# a', '# b')).toBeNull();
+  });
+  test('reads the Codex and OpenCode registries too', () => {
+    const codexProject = '[mcp_servers.playwright]\ncommand = "bunx"\n';
+    const codexUpstream = '[mcp_servers.context7]\ncommand = "bunx"\n';
+    expect(retiredMcpNote('.codex/config.toml', codexProject, codexUpstream)!.clause).toContain('playwright');
+    const ocProject = '{ "mcp": { "playwright": { "type": "local" } } }';
+    const ocUpstream = '{ "mcp": { "context7": { "type": "local" } } }';
+    expect(retiredMcpNote('opencode.jsonc', ocProject, ocUpstream)!.clause).toContain('playwright');
+  });
+});
+
+describe('harnessLevelMcpNote', () => {
+  const upstream = JSON.stringify({ mcpServers: { context7: { command: 'bunx' } } });
+  test('names a server the project keeps that upstream moved to harness level, with its former key', () => {
+    const project = JSON.stringify({ mcpServers: { context7: { command: 'bunx' }, tavily: { type: 'http', url: 'https://mcp.tavily.com/mcp/' } } });
+    const note = harnessLevelMcpNote('.mcp.json', project, upstream);
+    expect(note).not.toBeNull();
+    expect(note!.clause).toContain('"tavily" now run at harness level');
+    expect(note!.clause).toContain('TAVILY_API_KEY');
+    expect(note!.note).toContain('keep project');
+    expect(note!.note).toContain('claude mcp add --scope user');
+  });
+  test('silent when the project declares none of them, when upstream still has them, and on a non-MCP file', () => {
+    expect(harnessLevelMcpNote('.mcp.json', upstream, upstream)).toBeNull();
+    const both = JSON.stringify({ mcpServers: { postman: { type: 'http', url: 'https://mcp.postman.com/mcp' } } });
+    expect(harnessLevelMcpNote('.mcp.json', both, both)).toBeNull();
+    expect(harnessLevelMcpNote('AGENTS.md', '# a', '# b')).toBeNull();
+  });
+  test('silent on a harness-level server upstream never committed: nothing moved, so there is nothing to migrate', () => {
+    const project = JSON.stringify({ mcpServers: { context7: { command: 'bunx' }, exa: { type: 'http', url: 'https://mcp.exa.ai/mcp' } } });
+    expect(harnessLevelMcpNote('.mcp.json', project, upstream)).toBeNull();
+  });
+  test('reads the Codex and OpenCode registries too', () => {
+    const codexProject = '[mcp_servers.postman]\nurl = "https://mcp.postman.com/mcp"\n';
+    const codexUpstream = '[mcp_servers.context7]\ncommand = "bunx"\n';
+    expect(harnessLevelMcpNote('.codex/config.toml', codexProject, codexUpstream)!.clause).toContain('postman');
+    const ocProject = '{ "mcp": { "tavily": { "type": "remote", "url": "https://mcp.tavily.com/mcp/" } } }';
+    const ocUpstream = '{ "mcp": { "context7": { "type": "local" } } }';
+    expect(harnessLevelMcpNote('opencode.jsonc', ocProject, ocUpstream)!.clause).toContain('tavily');
+  });
+});
+
+describe('context map rows (informational)', () => {
+  function base(root: string): ParityInput {
+    return { root, upstreamDir: temporaryRoot(), drift: [], compatErrors: [], archivedSkills: [], archivedSkillsDir: join(root, 'x'), heldBack: [], envNewKeys: [] };
+  }
+  function put(root: string, rel: string, body: string): void {
+    const full = join(root, rel);
+    mkdirSync(dirname(full), { recursive: true });
+    writeFileSync(full, body);
+  }
+
+  test('a placeholder map with the old markdown map beside it is one non-blocking row naming both', () => {
+    const root = temporaryRoot();
+    put(root, '.agents/skills/business-data-context/references/business-data-map.html', '<!-- placeholder: run project-context mode data to generate this map -->\n<html></html>');
+    put(root, '.context/business/business-data-map.md', '# old');
+    const rows = collectParityFindings(base(root)).filter(f => f.path.includes('business-data-map'));
+    expect(rows).toHaveLength(1);
+    expect(rows[0].blocking).toBe(false);
+    expect(rows[0].surface).toBe('skills');
+    expect(rows[0].evidence).toContain('informational:');
+    expect(rows[0].evidence).toContain('placeholder');
+    expect(rows[0].evidence).toContain('.context/business/business-data-map.md');
+    expect(rows[0].evidence).toContain('project-context mode data');
+  });
+
+  test('a generated map, or a skill the project does not have, raises no row', () => {
+    const root = temporaryRoot();
+    put(root, '.agents/skills/business-api-context/references/business-api-map.html', '<!-- generated by project-context mode api; edited in place by business-api-context refresh; do not hand-edit -->\n<html></html>');
+    const rows = collectParityFindings(base(root)).filter(f => f.path.includes('-map.html'));
+    expect(rows).toEqual([]);
+  });
+
+  test('a skill folder without its map raises the no-map row', () => {
+    const root = temporaryRoot();
+    put(root, '.agents/skills/business-e2e-context/SKILL.md', 'x');
+    const rows = collectParityFindings(base(root)).filter(f => f.path.includes('business-e2e-map'));
+    expect(rows).toHaveLength(1);
+    expect(rows[0].evidence).toContain('has no map');
   });
 });

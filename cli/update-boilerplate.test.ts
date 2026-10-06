@@ -1,11 +1,13 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 import { afterEach, describe, expect, test } from 'bun:test';
 
-import { validateComponentRegistry } from './lib/updater-core.ts';
-import { COMPONENTS, GATE_SCRIPTS, gatesSummaryLine, parseArgs, resolveProtectedWatchlist, runGate, summarizeGates } from './update-boilerplate.ts';
+import { unusedHarnessPaths } from './lib/harness-selection.ts';
+import { cleanupDeprecated, componentOwnedPaths, isRepoOnlyPath, validateComponentRegistry } from './lib/updater-core.ts';
+import { RETIRED_SECTION_FILES } from './lib/updater-instructions.ts';
+import { COMPONENTS, DEPRECATED_FILES, GATE_SCRIPTS, gatesSummaryLine, parseArgs, resolveProtectedWatchlist, RETIRED_COMMAND_WRAPPERS, RETIRED_SKILL_FILES, runGate, summarizeGates, worktreeRefusal } from './update-boilerplate.ts';
 
 const temporaryRoots: string[] = [];
 
@@ -30,8 +32,8 @@ describe('component registry', () => {
   test('.claude/settings.json ships once (bootstrap-only) and stays out of every directory component', () => {
     const rootConfig = COMPONENTS.find(c => c.name === 'agent-root-config');
     expect(rootConfig).toMatchObject({ type: 'file-list', paths: ['.claude'], files: ['settings.json'], bootstrapOnly: true });
-    // `.claude` itself is never a directory component: `commands` owns
-    // `.claude/commands`, the alias `.claude/skills` is generated.
+    // `.claude` itself is never a directory component: `.claude/commands` is
+    // the project's own, the alias `.claude/skills` is generated.
     expect(COMPONENTS.filter(c => c.type !== 'file-list').flatMap(c => c.paths)).not.toContain('.claude');
     // The MCP registries and the CLAUDE.md shim left the sync in 8.2.
     const rootFiles = COMPONENTS.filter(c => c.type === 'file-list').flatMap(c => c.files ?? []);
@@ -45,9 +47,105 @@ describe('component registry', () => {
     expect(COMPONENTS.find(c => c.name === 'codex-config')).toMatchObject({ type: 'directory', paths: ['.codex'], bootstrapOnly: true, frameworkFiles: ['hooks.json'] });
     expect(COMPONENTS.find(c => c.name === 'skills')).toMatchObject({ type: 'directory', paths: ['.agents/skills'] });
     const paths = COMPONENTS.flatMap(c => c.paths);
-    for (const p of ['.agents/skills', '.agents/compatibility', '.agents/hooks', '.claude/commands', '.opencode/commands', '.opencode/plugins', '.codex', '.husky']) {
+    for (const p of ['.agents/skills', '.agents/hooks', '.opencode/plugins', '.codex', '.husky']) {
       expect(paths).toContain(p);
     }
+  });
+
+  test('.worktreeinclude ships once (bootstrap-only), so the lines a project adds survive every sync', () => {
+    expect(COMPONENTS.find(c => c.name === 'worktree-include')).toMatchObject({ type: 'file-list', paths: ['.'], files: ['.worktreeinclude'], bootstrapOnly: true });
+  });
+
+  test('.playwright/cli.config.json ships once (bootstrap-only): a project keeps its tuning, the legacy profile is a parity row', () => {
+    expect(COMPONENTS.find(c => c.name === 'playwright-cli-config')).toMatchObject({ type: 'file-list', paths: ['.playwright'], files: ['cli.config.json'], bootstrapOnly: true });
+    // Upstream's own copy is the shape the parity row asks for.
+    const shipped = JSON.parse(readFileSync(join(import.meta.dir, '..', '.playwright', 'cli.config.json'), 'utf8')) as { browser: Record<string, unknown> };
+    expect(shipped.browser.isolated).not.toBe(false);
+    expect(shipped.browser).not.toHaveProperty('userDataDir');
+  });
+
+  test('the retired command aliases leave the sync and are removed downstream, the project\'s own commands stay', () => {
+    const paths = COMPONENTS.flatMap(c => c.paths);
+    for (const p of ['.agents/compatibility', '.claude/commands', '.opencode/commands']) {
+      expect(paths).not.toContain(p);
+    }
+    expect(COMPONENTS.find(c => c.name === 'commands')).toBeUndefined();
+
+    const retired = RETIRED_COMMAND_WRAPPERS.map(d => d.path);
+    expect(retired).toContain('.agents/compatibility/command-aliases.json');
+    expect(retired).toContain('.claude/commands/business-data-map.md');
+    expect(retired).toContain('.opencode/commands/business-data-map.md');
+    // Same alias set on both hosts: one wrapper per host per alias.
+    const byHost = (dir: string): string[] => retired.filter(p => p.startsWith(`${dir}/`)).map(p => p.slice(dir.length + 1)).sort();
+    expect(byHost('.claude/commands')).toEqual(byHost('.opencode/commands'));
+    expect(retired).not.toContain('.agents/compatibility/command-aliases.project.json');
+    for (const d of RETIRED_COMMAND_WRAPPERS) {
+      expect(d.reason).toContain('invoke the skill by name plus its mode');
+      expect(d.deprecatedSince).not.toBe('');
+    }
+
+    const root = temporaryRoot();
+    for (const d of RETIRED_COMMAND_WRAPPERS) {
+      mkdirSync(join(root, d.path, '..'), { recursive: true });
+      writeFileSync(join(root, d.path), 'wrapper\n');
+    }
+    mkdirSync(join(root, '.claude/commands'), { recursive: true });
+    writeFileSync(join(root, '.claude/commands/acme-deploy.md'), 'the project\'s own\n');
+    const cfg = { deprecatedFiles: RETIRED_COMMAND_WRAPPERS } as Parameters<typeof cleanupDeprecated>[0];
+    expect(cleanupDeprecated(cfg, root, true)).toBe(RETIRED_COMMAND_WRAPPERS.length);
+    expect(cleanupDeprecated(cfg, root, false)).toBe(RETIRED_COMMAND_WRAPPERS.length);
+    expect(cleanupDeprecated(cfg, root, false)).toBe(0);
+    expect(existsSync(join(root, '.claude/commands/acme-deploy.md'))).toBe(true);
+  });
+
+  test('a renamed skill leaves downstream with its folder, and a folder the project still uses stays', () => {
+    const retired = RETIRED_SKILL_FILES.map(d => d.path);
+    expect(retired).toContain('.agents/skills/adapt-framework/SKILL.md');
+    expect(retired).toContain('.agents/skills/adapt-framework/references/adaptation-workflow.md');
+    expect(DEPRECATED_FILES.map(d => d.path)).toEqual([...RETIRED_COMMAND_WRAPPERS, ...RETIRED_SKILL_FILES, ...RETIRED_SECTION_FILES].map(d => d.path));
+    expect(retired).toContain('.agents/skills/sync-ai-context/SKILL.md');
+    expect(retired).toContain('.agents/skills/sync-ai-context/references/sync.md');
+    for (const d of RETIRED_SKILL_FILES) {
+      expect(d.reason).toContain(d.path.includes('/adapt-framework/') ? 'test-framework-adaptation' : 'docs:check');
+    }
+
+    const root = temporaryRoot();
+    for (const d of RETIRED_SKILL_FILES) {
+      mkdirSync(join(root, d.path, '..'), { recursive: true });
+      writeFileSync(join(root, d.path), 'old skill\n');
+    }
+    mkdirSync(join(root, '.agents/skills/test-framework-adaptation'), { recursive: true });
+    writeFileSync(join(root, '.agents/skills/test-framework-adaptation/SKILL.md'), 'new skill\n');
+    const cfg = { deprecatedFiles: RETIRED_SKILL_FILES } as Parameters<typeof cleanupDeprecated>[0];
+    expect(cleanupDeprecated(cfg, root, false)).toBe(RETIRED_SKILL_FILES.length);
+    // An emptied skill folder would fail skills:check ("directory has no SKILL.md").
+    expect(existsSync(join(root, '.agents/skills/adapt-framework'))).toBe(false);
+    expect(existsSync(join(root, '.agents/skills/test-framework-adaptation/SKILL.md'))).toBe(true);
+
+    const kept = temporaryRoot();
+    for (const d of RETIRED_SKILL_FILES) {
+      mkdirSync(join(kept, d.path, '..'), { recursive: true });
+      writeFileSync(join(kept, d.path), 'old skill\n');
+    }
+    writeFileSync(join(kept, '.agents/skills/adapt-framework/references/our-notes.md'), 'the project\'s own\n');
+    cleanupDeprecated(cfg, kept, false);
+    expect(existsSync(join(kept, '.agents/skills/adapt-framework/references/our-notes.md'))).toBe(true);
+    expect(existsSync(join(kept, '.agents/skills/adapt-framework/SKILL.md'))).toBe(false);
+  });
+
+  test('docs syncs only its shipped half; every other path under docs/ is project-owned', () => {
+    const docs = COMPONENTS.find(c => c.name === 'docs');
+    expect(docs?.paths).not.toContain('docs');
+    for (const p of ['docs/core', 'docs/assets', 'docs/index.html', 'docs/README.md', 'docs/.gitignore']) {
+      expect(docs?.paths).toContain(p);
+    }
+    const owned = COMPONENTS.flatMap(c => componentOwnedPaths(c));
+    for (const projectPage of ['docs/team/runbook.html', 'docs/manifest.json', 'docs/coreutils/x.html']) {
+      expect(isRepoOnlyPath(projectPage, owned)).toBe(false);
+    }
+    expect(isRepoOnlyPath('docs/core/setup/dbhub.html', owned)).toBe(true);
+    // Retired pages stay listed so their upstream deletion reaches older projects.
+    expect(isRepoOnlyPath('docs/setup/mcp-dbhub.md', owned)).toBe(true);
   });
 });
 
@@ -65,8 +163,13 @@ describe('protected watchlist', () => {
     for (const p of ['.mcp.json', 'opencode.jsonc', '.codex/config.toml', '.claude/settings.json']) {
       expect(byPath[p]).toMatchObject({ source: 'upstream' });
     }
-    expect(byPath['.husky/pre-commit']).toMatchObject({ reason: 'project gates live here', source: 'upstream' });
-    expect(byPath['.husky/pre-push']).toMatchObject({ reason: 'project gates live here', source: 'upstream' });
+    // Every hook stays watched for what is genuinely its own (ordering + its own
+    // gates); the reason has to name the synced file the framework gates come
+    // from, since that sentence is what the drift row shows the operator.
+    for (const hook of ['.husky/pre-commit', '.husky/pre-push', '.husky/commit-msg']) {
+      expect(byPath[hook]).toMatchObject({ source: 'upstream' });
+      expect(byPath[hook]?.reason).toContain('.husky/framework-gates.sh');
+    }
     expect(byPath['.agents/project.yaml']?.structural).toBe(true);
     expect(byPath['.agents/jira-required.yaml']?.structural).toBe(true);
     expect(byPath['.claude/settings.json']?.structural).toBeUndefined();
@@ -87,6 +190,54 @@ describe('protected watchlist', () => {
       'updater.protected_paths (.agents/project.yaml): entrada ignorada "../outside.ts": outside the repo (`..` segment).',
       'updater.protected_paths (.agents/project.yaml): entrada ignorada ".git/config": under .git.',
     ]);
+  });
+});
+
+describe('one-harness projects (ADR-0012)', () => {
+  test('a Claude-only project gets no OpenCode or Codex file delivered, watched or reported', () => {
+    const root = temporaryRoot();
+    for (const file of ['CLAUDE.md', '.mcp.json', '.claude/settings.json']) {
+      mkdirSync(dirname(join(root, file)), { recursive: true });
+      writeFileSync(join(root, file), '{}\n');
+    }
+    const unused = unusedHarnessPaths(root);
+    expect(unused).toEqual(['opencode.jsonc', '.opencode/plugins', '.codex']);
+
+    const watched = resolveProtectedWatchlist(root).map(e => e.path);
+    expect(watched).toContain('.mcp.json');
+    expect(watched).not.toContain('opencode.jsonc');
+    expect(watched).not.toContain('.codex/config.toml');
+
+    // `repoOnlyPaths` is the filter every detection path (bootstrap, content
+    // reconcile, git-log delta) goes through: nothing below these is delivered.
+    const shipped = ['.opencode/plugins/personality-reinject.js', '.codex/hooks.json', '.codex/config.toml', '.codex/environments/environment.toml', 'opencode.jsonc'];
+    for (const file of shipped) { expect(isRepoOnlyPath(file, unused)).toBe(true); }
+    expect(isRepoOnlyPath('.agents/hooks/personality-reinject.mjs', unused)).toBe(false);
+    expect(isRepoOnlyPath('.opencode/commands/mine.md', unused)).toBe(false);
+  });
+
+  test('a project with all three (or none detected) keeps the full delivery', () => {
+    expect(unusedHarnessPaths(temporaryRoot())).toEqual([]);
+  });
+});
+
+describe('worktree refusal', () => {
+  test('runs in the primary checkout, refuses in a linked worktree and names the primary', () => {
+    const base = temporaryRoot();
+    const primary = join(base, 'primary');
+    mkdirSync(primary);
+    const git = (cwd: string, ...args: string[]) => Bun.spawnSync(['git', '-C', cwd, ...args], { stdout: 'ignore', stderr: 'ignore' });
+    git(primary, 'init', '-q');
+    git(primary, '-c', 'user.email=t@t.invalid', '-c', 'user.name=t', 'commit', '-q', '--allow-empty', '-m', 'init');
+    const wt = join(base, 'wt');
+    git(primary, 'worktree', 'add', '-q', '-b', 'probe', wt);
+
+    expect(worktreeRefusal(primary)).toBeNull();
+    const refusal = worktreeRefusal(wt);
+    expect(refusal).toContain('bun run up');
+    expect(refusal).toContain('primary');
+    // Not a git checkout at all: not this guard's business.
+    expect(worktreeRefusal(temporaryRoot())).toBeNull();
   });
 });
 
@@ -114,8 +265,11 @@ describe('post-apply gates', () => {
     return root;
   }
 
-  test('the KATA manifest check is a gate next to types and lint', () => {
-    expect([...GATE_SCRIPTS]).toEqual(['types:check', 'lint:check', 'kata:manifest:check']);
+  test('the KATA manifest and skill-lint checks are gates next to types and lint', () => {
+    // `skills:check` is the only gate that sees a half-delivered release: a new
+    // skill applied here, the category vocabulary it needs kept in a protected
+    // file (see PATH_PREREQUISITES).
+    expect([...GATE_SCRIPTS]).toEqual(['types:check', 'lint:check', 'kata:manifest:check', 'skills:check']);
   });
 
   test('a failing gate reports exit code, error count, the first lines and which applied files they name', () => {
