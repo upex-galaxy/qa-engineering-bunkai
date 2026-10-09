@@ -381,7 +381,9 @@ export class ApiBase extends TestContext {
   }
 
   /**
-   * Build request headers with auth token if available
+   * Build request headers with auth token if available.
+   * An explicit per-request `Authorization` header wins over the component's
+   * token, so a call can authenticate as another identity (e.g. a minted PAT).
    */
   buildHeaders(customHeaders?: Record<string, string>) {
     const headers: Record<string, string> = {
@@ -389,7 +391,7 @@ export class ApiBase extends TestContext {
       ...customHeaders,
     };
 
-    if (this.authToken) {
+    if (this.authToken && !customHeaders?.Authorization) {
       headers.Authorization = `Bearer ${this.authToken}`;
     }
 
