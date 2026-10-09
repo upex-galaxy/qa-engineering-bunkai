@@ -142,6 +142,20 @@ export class HomeApi extends ApiBase {
   }
 
   /**
+   * Discover helper: the newest activity event ids of a workspace, newest
+   * first (the same stream the Home feed reads). Used by BK-630 to know which
+   * rows the capped feed must show. Silent-fail: [] on any error.
+   */
+  @step
+  async listActivityEventIds(workspaceId: string, limit: number): Promise<string[]> {
+    const [, body] = await this.apiGET<ActivityEventLookupResponse>(
+      '/v1/activity',
+      { params: { workspace_id: workspaceId, limit: String(limit) } },
+    );
+    return body.items?.map(item => item.id) ?? [];
+  }
+
+  /**
    * Precondition-setup helper: create a throw-away workspace the test user
    * owns (Generate pattern — BK-625/626/627/631 all reuse this, twice by
    * BK-631). Promoted from BK-256's own raw-apiPOST-at-test-file-level

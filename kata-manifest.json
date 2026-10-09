@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "generatedAt": "2026-10-09T03:30:54.773Z",
+  "generatedAt": "2026-10-09T03:44:09.918Z",
   "components": {
     "api": [
       {
@@ -204,9 +204,14 @@
             "line": 311
           },
           {
+            "id": "BK-630",
+            "method": "viewActivityFeedCappedAtLimit",
+            "line": 335
+          },
+          {
             "id": "BK-631",
             "method": "verifyActivityIsolatedByWorkspace",
-            "line": 328
+            "line": 348
           },
           {
             "id": "BK-849",
@@ -278,7 +283,7 @@
   ],
   "summary": {
     "totalComponents": 14,
-    "totalATCs": 33,
+    "totalATCs": 34,
     "apiComponents": 10,
     "uiComponents": 4,
     "stepsModules": 1

@@ -325,6 +325,26 @@ export class HomePage extends UiBase {
    * Risk-beyond-AC — RLS: activity_log_select_workspace_member never leaks
    * across workspaces — see atc/BK-631.md §"Adaptation rationale").
    */
+  /**
+   * ATC: the feed shows only the newest events up to its row cap, newest
+   * first (BK-630; cap = HOME_ACTIVITY_FEED_LIMIT, 6).
+   *
+   * Precondition (set by the test): the active workspace has more tracked
+   * events than the cap; `expectedEventIds` are the newest ones, in order.
+   */
+  @atc('BK-630')
+  async viewActivityFeedCappedAtLimit(expectedEventIds: string[]): Promise<void> {
+    await this.goto();
+    const rows = this.recentActivityList().locator('[data-testid^="home-recent-activity-item-"]');
+
+    await expect(rows).toHaveCount(expectedEventIds.length);
+    const renderedIds = await rows.evaluateAll(items =>
+      items.map(item => item.getAttribute('data-testid')!.replace('home-recent-activity-item-', '')),
+    );
+    expect(renderedIds).toEqual(expectedEventIds);
+    await expect(this.recentActivityViewAllHeader()).toBeVisible();
+  }
+
   @atc('BK-631')
   async verifyActivityIsolatedByWorkspace(foreignEventId: string): Promise<void> {
     await this.goto();
