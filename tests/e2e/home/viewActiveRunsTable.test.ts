@@ -15,7 +15,7 @@
 import type { ApiFixture } from '@ApiFixture';
 import type { WorkspaceCreateBody, WorkspaceCreateResponse } from '@schemas/home.types';
 
-import { expect, test } from '@TestFixture';
+import { config, expect, test } from '@TestFixture';
 
 // The fixture workspace spec.md names as this scope's precondition. If the
 // active staging environment does not have it, every hybrid scenario
@@ -68,6 +68,16 @@ test.describe('BK-256: Validate the Home active-runs table', () => {
       { name: 'BK-256 empty state', slug: `bk256-empty-${Date.now()}` },
     );
     emptyWorkspaceId = emptyResponse.ok() ? emptyBody.workspace.id : null;
+  });
+
+  // Soft-delete the throw-away empty workspace. Delete is session-only, so
+  // switch to the cookie session first (ADR-0002).
+  test.afterAll(async ({ api }) => {
+    if (!emptyWorkspaceId) {
+      return;
+    }
+    await api.useCookieSession(config.testUser);
+    await api.home.deleteWorkspace(emptyWorkspaceId);
   });
 
   // ============================================
