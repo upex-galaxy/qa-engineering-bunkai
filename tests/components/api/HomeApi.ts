@@ -85,6 +85,20 @@ export class HomeApi extends ApiBase {
   }
 
   /**
+   * Discover helper: list the workspaces a caller belongs to (with role).
+   *
+   * Pass an explicit Bearer to list as ANOTHER identity (e.g. the secondary
+   * test user) without touching the context's session — the server resolves
+   * an explicit Bearer before the cookie. Silent-fail: [] on any error.
+   */
+  @step
+  async listWorkspaces(token?: string): Promise<WorkspaceWithRole[]> {
+    const options = token ? { headers: { Authorization: `Bearer ${token}` } } : {};
+    const [, body] = await this.apiGET<WorkspaceListResponse>('/v1/workspaces', options);
+    return body.workspaces ?? [];
+  }
+
+  /**
    * Discover helper: find a workspace the caller belongs to by its slug.
    *
    * Silent-fail (returns null) per typescript-patterns.md §7 — callers

@@ -19,11 +19,13 @@ import type { TestContextOptions } from '@TestContext';
 
 import { ApiBase } from '@api/ApiBase';
 import { AuthApi } from '@api/AuthApi';
+import { BillingApi } from '@api/BillingApi';
 import { BugsApi } from '@api/BugsApi';
 import { ExampleApi } from '@api/ExampleApi';
 import { HomeApi } from '@api/HomeApi';
 import { ModulesApi } from '@api/ModulesApi';
 import { RunsApi } from '@api/RunsApi';
+import { TokensApi } from '@api/TokensApi';
 
 // ============================================
 // API Fixture Class
@@ -32,6 +34,9 @@ import { RunsApi } from '@api/RunsApi';
 export class ApiFixture extends ApiBase {
   /** Auth component - handles login and token management */
   readonly auth: AuthApi;
+
+  /** Billing component - BK-230 checkout hardening (BK-818 / BK-1110 / BK-1111) */
+  readonly billing: BillingApi;
 
   /** Bugs component - BK-260 bug-triage precondition helpers */
   readonly bugs: BugsApi;
@@ -48,16 +53,21 @@ export class ApiFixture extends ApiBase {
   /** Runs component - BK-256 run-lifecycle precondition helpers */
   readonly runs: RunsApi;
 
+  /** Tokens component - PAT mint/revoke precondition helpers (ADR-0002) */
+  readonly tokens: TokensApi;
+
   constructor(options: TestContextOptions) {
     super(options);
 
     // All components receive the same options (same request context)
     this.auth = new AuthApi(options);
+    this.billing = new BillingApi(options);
     this.bugs = new BugsApi(options);
     this.example = new ExampleApi(options);
     this.home = new HomeApi(options);
     this.modules = new ModulesApi(options);
     this.runs = new RunsApi(options);
+    this.tokens = new TokensApi(options);
   }
 
   // ============================================
@@ -71,11 +81,13 @@ export class ApiFixture extends ApiBase {
   override setAuthToken(token: string) {
     super.setAuthToken(token);
     this.auth.setAuthToken(token);
+    this.billing.setAuthToken(token);
     this.bugs.setAuthToken(token);
     this.example.setAuthToken(token);
     this.home.setAuthToken(token);
     this.modules.setAuthToken(token);
     this.runs.setAuthToken(token);
+    this.tokens.setAuthToken(token);
   }
 
   /**
@@ -98,10 +110,12 @@ export class ApiFixture extends ApiBase {
   override clearAuthToken() {
     super.clearAuthToken();
     this.auth.clearAuthToken();
+    this.billing.clearAuthToken();
     this.bugs.clearAuthToken();
     this.example.clearAuthToken();
     this.home.clearAuthToken();
     this.modules.clearAuthToken();
     this.runs.clearAuthToken();
+    this.tokens.clearAuthToken();
   }
 }

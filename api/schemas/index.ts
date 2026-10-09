@@ -11,6 +11,7 @@
  */
 
 export type * from './auth.types';
+export type * from './billing.types';
 export type * from './bugs.types';
 export type * from './home.types';
 export type * from './modules.types';

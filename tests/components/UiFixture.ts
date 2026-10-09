@@ -16,6 +16,7 @@
 
 import type { TestContextOptions } from '@TestContext';
 
+import { BillingPage } from '@ui/BillingPage';
 import { ExamplePage } from '@ui/ExamplePage';
 import { HomePage } from '@ui/HomePage';
 import { LoginPage } from '@ui/LoginPage';
@@ -35,6 +36,9 @@ export class UiFixture extends UiBase {
   /** Home page component - BK-256 active-runs widget */
   readonly home: HomePage;
 
+  /** Billing page component - BK-230 upgrade view */
+  readonly billing: BillingPage;
+
   constructor(options: TestContextOptions) {
     super(options);
 
@@ -42,5 +46,6 @@ export class UiFixture extends UiBase {
     this.login = new LoginPage(options);
     this.example = new ExamplePage(options);
     this.home = new HomePage(options);
+    this.billing = new BillingPage(options);
   }
 }

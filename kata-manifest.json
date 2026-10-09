@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "generatedAt": "2026-10-09T02:15:35.530Z",
+  "generatedAt": "2026-10-09T02:55:53.358Z",
   "components": {
     "api": [
       {
@@ -17,6 +17,28 @@
             "id": "PROJ-102",
             "method": "loginWithInvalidCredentials",
             "line": 135
+          }
+        ]
+      },
+      {
+        "name": "BillingApi",
+        "file": "BillingApi.ts",
+        "relativePath": "tests\\components\\api\\BillingApi.ts",
+        "atcs": [
+          {
+            "id": "BK-1110",
+            "method": "startCheckoutWithoutPaymentProcessor",
+            "line": 167
+          },
+          {
+            "id": "BK-1111",
+            "method": "startCheckoutWithWorkspaceAdminToken",
+            "line": 188
+          },
+          {
+            "id": "BK-818",
+            "method": "startCheckoutAsNonMember",
+            "line": 146
           }
         ]
       },
@@ -65,9 +87,27 @@
         "file": "RunsApi.ts",
         "relativePath": "tests\\components\\api\\RunsApi.ts",
         "atcs": []
+      },
+      {
+        "name": "TokensApi",
+        "file": "TokensApi.ts",
+        "relativePath": "tests\\components\\api\\TokensApi.ts",
+        "atcs": []
       }
     ],
     "ui": [
+      {
+        "name": "BillingPage",
+        "file": "BillingPage.ts",
+        "relativePath": "tests\\components\\ui\\BillingPage.ts",
+        "atcs": [
+          {
+            "id": "BK-1110",
+            "method": "continueToPaymentShowsGenericProcessorError",
+            "line": 50
+          }
+        ]
+      },
       {
         "name": "ExamplePage",
         "file": "ExamplePage.ts",
@@ -184,10 +224,10 @@
     }
   ],
   "summary": {
-    "totalComponents": 9,
-    "totalATCs": 21,
-    "apiComponents": 6,
-    "uiComponents": 3,
+    "totalComponents": 12,
+    "totalATCs": 25,
+    "apiComponents": 8,
+    "uiComponents": 4,
     "stepsModules": 1
   }
 }
