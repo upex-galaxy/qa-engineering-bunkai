@@ -154,4 +154,15 @@ export class HomeApi extends ApiBase {
   ): Promise<[APIResponse, WorkspaceCreateResponse, WorkspaceCreateBody]> {
     return this.apiPOST<WorkspaceCreateResponse, WorkspaceCreateBody>('/v1/workspaces', payload);
   }
+
+  /**
+   * Teardown helper: soft-delete a throw-away workspace (owner-only,
+   * session-only; 30-day restore grace). Silent-fail (returns the status) so
+   * teardown never masks the test's own result.
+   */
+  @step
+  async deleteWorkspace(workspaceId: string): Promise<number> {
+    const [response] = await this.apiDELETE(`/v1/workspaces/${workspaceId}`);
+    return response.status();
+  }
 }

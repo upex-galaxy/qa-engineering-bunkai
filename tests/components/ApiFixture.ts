@@ -23,7 +23,9 @@ import { BillingApi } from '@api/BillingApi';
 import { BugsApi } from '@api/BugsApi';
 import { ExampleApi } from '@api/ExampleApi';
 import { HomeApi } from '@api/HomeApi';
+import { MembersApi } from '@api/MembersApi';
 import { ModulesApi } from '@api/ModulesApi';
+import { ProjectsApi } from '@api/ProjectsApi';
 import { RunsApi } from '@api/RunsApi';
 import { TokensApi } from '@api/TokensApi';
 
@@ -47,8 +49,14 @@ export class ApiFixture extends ApiBase {
   /** Home component - BK-256 active-runs widget + BK-260 recent-activity widget helpers */
   readonly home: HomeApi;
 
+  /** Members component - workspace invite / accept / leave precondition helpers */
+  readonly members: MembersApi;
+
   /** Modules component - BK-260 module-management precondition helpers */
   readonly modules: ModulesApi;
+
+  /** Projects component - project creation + BK-230 community project cap */
+  readonly projects: ProjectsApi;
 
   /** Runs component - BK-256 run-lifecycle precondition helpers */
   readonly runs: RunsApi;
@@ -65,7 +73,9 @@ export class ApiFixture extends ApiBase {
     this.bugs = new BugsApi(options);
     this.example = new ExampleApi(options);
     this.home = new HomeApi(options);
+    this.members = new MembersApi(options);
     this.modules = new ModulesApi(options);
+    this.projects = new ProjectsApi(options);
     this.runs = new RunsApi(options);
     this.tokens = new TokensApi(options);
   }
@@ -85,7 +95,9 @@ export class ApiFixture extends ApiBase {
     this.bugs.setAuthToken(token);
     this.example.setAuthToken(token);
     this.home.setAuthToken(token);
+    this.members.setAuthToken(token);
     this.modules.setAuthToken(token);
+    this.projects.setAuthToken(token);
     this.runs.setAuthToken(token);
     this.tokens.setAuthToken(token);
   }
@@ -114,7 +126,9 @@ export class ApiFixture extends ApiBase {
     this.bugs.clearAuthToken();
     this.example.clearAuthToken();
     this.home.clearAuthToken();
+    this.members.clearAuthToken();
     this.modules.clearAuthToken();
+    this.projects.clearAuthToken();
     this.runs.clearAuthToken();
     this.tokens.clearAuthToken();
   }

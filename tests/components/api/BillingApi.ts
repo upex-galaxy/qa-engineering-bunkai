@@ -17,7 +17,7 @@
  */
 
 import type { APIResponse } from '@playwright/test';
-import type { ApiErrorEnvelope, BillingCheckoutBody, CheckoutResult } from '@schemas/billing.types';
+import type { ApiErrorEnvelope, BillingCheckoutBody, CheckoutResult, WorkspaceBillingOverview } from '@schemas/billing.types';
 import type { TestContextOptions } from '@TestContext';
 
 import { ApiBase } from '@api/ApiBase';
@@ -48,6 +48,17 @@ export interface NonMemberCheckoutArgs {
 export interface AdminTokenCheckoutArgs {
   workspaceId: string
   token: string
+}
+
+export interface InvalidSeatCheckoutArgs {
+  workspaceId: string
+  seatQuantity: unknown
+  expectedCode: 'seat_quantity_invalid' | 'validation_failed'
+}
+
+export interface ValidSeatCheckoutArgs {
+  workspaceId: string
+  seatQuantity: number
 }
 
 export type PaymentProcessorState = 'configured' | 'unavailable' | 'unknown';
@@ -88,6 +99,12 @@ export class BillingApi extends ApiBase {
       { headers },
     );
     return [response, body];
+  }
+
+  /** Helper: read the workspace billing overview (plan, active_seats, ...). Admin/owner only. */
+  @step
+  async getBillingOverview(workspaceId: string): Promise<[APIResponse, WorkspaceBillingOverview]> {
+    return this.apiGET<WorkspaceBillingOverview>(`/v1/workspaces/${workspaceId}/billing`);
   }
 
   /**
@@ -204,5 +221,66 @@ export class BillingApi extends ApiBase {
     }
 
     return response;
+  }
+
+  /**
+   * ATC: an out-of-range or wrongly typed seat quantity is rejected and no
+   * checkout starts (BK-230 TC8). Range: [active_seats, 25].
+   */
+  @atc('BK-814')
+  async startCheckoutWithInvalidSeatQuantity(args: InvalidSeatCheckoutArgs): Promise<ApiErrorEnvelope> {
+    const [response, body] = await this.startCheckout({
+      workspaceId: args.workspaceId,
+      body: { seat_quantity: args.seatQuantity },
+    });
+
+    expect(response.status(), `seat_quantity ${JSON.stringify(args.seatQuantity)}`).toBe(422);
+    expect(body.error?.code).toBe(args.expectedCode);
+    expect(body.url).toBeUndefined();
+
+    return body as ApiErrorEnvelope;
+  }
+
+  /**
+   * ATC: a seat quantity inside [active_seats, 25] passes seat validation and
+   * reaches the payment step (BK-230 TC7): a hosted Checkout URL (processor
+   * configured — the session is cancelled) or the processor's own 503.
+   */
+  @atc('BK-813')
+  async startCheckoutWithValidSeatQuantity(args: ValidSeatCheckoutArgs): Promise<APIResponse> {
+    const [response, body] = await this.startCheckout({
+      workspaceId: args.workspaceId,
+      body: { seat_quantity: args.seatQuantity },
+    });
+
+    expect(response.status(), `seat_quantity ${args.seatQuantity}: ${JSON.stringify(body.error ?? {})}`).not.toBe(422);
+    expect([200, 503]).toContain(response.status());
+    if (response.status() === 200) {
+      expect(body.url).toContain('checkout.stripe.com');
+      await this.cancelCheckout(args.workspaceId);
+    }
+    else {
+      expect(body.error?.code).toBe('payment_processor_unavailable');
+    }
+
+    return response;
+  }
+
+  /**
+   * ATC: an admin who is not the owner cannot start checkout (BK-230 TC14).
+   *
+   * Precondition (set by the test): the signed-in identity is an active
+   * `admin` member of the workspace.
+   */
+  @atc('BK-815')
+  async startCheckoutAsAdminMember(workspaceId: string): Promise<ApiErrorEnvelope> {
+    const [response, body] = await this.startCheckout({ workspaceId, body: { seat_quantity: 1 } });
+
+    expect(response.status()).toBe(403);
+    expect(body.error?.code).toBe('forbidden');
+    expect(body.error?.details).toEqual({ reason: 'not_workspace_owner' });
+    expect(body.url).toBeUndefined();
+
+    return body as ApiErrorEnvelope;
   }
 }

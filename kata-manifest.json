@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "generatedAt": "2026-10-09T02:55:53.358Z",
+  "generatedAt": "2026-10-09T03:30:54.773Z",
   "components": {
     "api": [
       {
@@ -28,17 +28,32 @@
           {
             "id": "BK-1110",
             "method": "startCheckoutWithoutPaymentProcessor",
-            "line": 167
+            "line": 184
           },
           {
             "id": "BK-1111",
             "method": "startCheckoutWithWorkspaceAdminToken",
-            "line": 188
+            "line": 205
+          },
+          {
+            "id": "BK-813",
+            "method": "startCheckoutWithValidSeatQuantity",
+            "line": 249
+          },
+          {
+            "id": "BK-814",
+            "method": "startCheckoutWithInvalidSeatQuantity",
+            "line": 230
+          },
+          {
+            "id": "BK-815",
+            "method": "startCheckoutAsAdminMember",
+            "line": 275
           },
           {
             "id": "BK-818",
             "method": "startCheckoutAsNonMember",
-            "line": 146
+            "line": 163
           }
         ]
       },
@@ -77,10 +92,28 @@
         "atcs": []
       },
       {
+        "name": "MembersApi",
+        "file": "MembersApi.ts",
+        "relativePath": "tests\\components\\api\\MembersApi.ts",
+        "atcs": []
+      },
+      {
         "name": "ModulesApi",
         "file": "ModulesApi.ts",
         "relativePath": "tests\\components\\api\\ModulesApi.ts",
         "atcs": []
+      },
+      {
+        "name": "ProjectsApi",
+        "file": "ProjectsApi.ts",
+        "relativePath": "tests\\components\\api\\ProjectsApi.ts",
+        "atcs": [
+          {
+            "id": "BK-812",
+            "method": "createProjectBeyondCommunityLimit",
+            "line": 68
+          }
+        ]
       },
       {
         "name": "RunsApi",
@@ -104,7 +137,27 @@
           {
             "id": "BK-1110",
             "method": "continueToPaymentShowsGenericProcessorError",
-            "line": 50
+            "line": 72
+          },
+          {
+            "id": "BK-800",
+            "method": "viewTierComparison",
+            "line": 93
+          },
+          {
+            "id": "BK-806",
+            "method": "viewEnterpriseContactPath",
+            "line": 114
+          },
+          {
+            "id": "BK-814",
+            "method": "clampSeatQuantityToBounds",
+            "line": 140
+          },
+          {
+            "id": "BK-815",
+            "method": "viewUpgradeAsNonOwner",
+            "line": 163
           }
         ]
       },
@@ -224,9 +277,9 @@
     }
   ],
   "summary": {
-    "totalComponents": 12,
-    "totalATCs": 25,
-    "apiComponents": 8,
+    "totalComponents": 14,
+    "totalATCs": 33,
+    "apiComponents": 10,
     "uiComponents": 4,
     "stepsModules": 1
   }

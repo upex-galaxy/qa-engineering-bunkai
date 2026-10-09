@@ -17,6 +17,12 @@ export type BillingCheckoutBody = components['schemas']['BillingCheckoutBody'];
 export type BillingCheckoutResponse = components['schemas']['BillingCheckoutResponse'];
 
 // ============================================================================
+// Schema Types - GET /api/v1/workspaces/{id}/billing
+// ============================================================================
+
+export type WorkspaceBillingOverview = components['schemas']['WorkspaceBillingOverview'];
+
+// ============================================================================
 // Schema Types - POST /api/v1/tokens
 // ============================================================================
 
