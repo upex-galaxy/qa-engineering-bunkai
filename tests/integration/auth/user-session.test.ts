@@ -10,6 +10,10 @@
 import { config, expect, test } from '@TestFixture';
 
 test.describe('UPEX-100: User Session API', { tag: ['@critical'] }, () => {
+  // The smoke project applies the browser storageState to `request` too; drop
+  // its session cookie so these assertions see Bearer-only auth (ADR-0002).
+  test.use({ storageState: { cookies: [], origins: [] } });
+
   /**
    * Validates that the auth token is automatically loaded from api-state.json
    * and can be used to make authenticated API calls.
@@ -19,13 +23,11 @@ test.describe('UPEX-100: User Session API', { tag: ['@critical'] }, () => {
     // Use helper (not ATC) — this is a read-only verification
     const [response, userData] = await api.auth.getCurrentUser();
 
-    // Test-level assertions (UPEX Dojo format)
+    // Test-level assertions (Bunkai GET /v1/me returns { user: { id, email }, workspaces })
     expect(response.status()).toBe(200);
     expect(userData.user).toBeDefined();
     expect(userData.user.id).toBeDefined();
-    expect(userData.user.email).toBeDefined();
-    expect(userData.user.name).toBeDefined();
-    expect(typeof userData.user.name).toBe('string');
+    expect(userData.user.email).toBe(config.testUser.email);
   });
 
   /**
@@ -55,12 +57,13 @@ test.describe('UPEX-100: User Session API', { tag: ['@critical'] }, () => {
     const credentials = {
       email: config.testUser.email,
       password: config.testUser.password,
+      pat_expires_in_days: 1,
     };
 
-    const [response, tokenData] = await api.auth.authenticateSuccessfully(credentials);
+    const [response, signinData] = await api.auth.authenticateSuccessfully(credentials);
 
-    // Verify new token was obtained and set
+    // Verify a new PAT was obtained and set
     expect(response.status()).toBe(200);
-    expect(tokenData.access_token).toBeDefined();
+    expect(signinData.pat.token).toBeDefined();
   });
 });

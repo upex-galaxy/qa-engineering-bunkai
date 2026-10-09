@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "generatedAt": "2026-09-21T19:54:40.048Z",
+  "generatedAt": "2026-10-09T02:15:35.530Z",
   "components": {
     "api": [
       {
@@ -11,12 +11,12 @@
           {
             "id": "PROJ-101",
             "method": "authenticateSuccessfully",
-            "line": 73
+            "line": 97
           },
           {
             "id": "PROJ-102",
             "method": "loginWithInvalidCredentials",
-            "line": 112
+            "line": 135
           }
         ]
       },

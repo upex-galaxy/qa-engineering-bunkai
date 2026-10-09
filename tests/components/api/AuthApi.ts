@@ -10,12 +10,12 @@
  * TODO: Replace 'PROJ' in @atc IDs with your Jira project key (e.g., @atc('UPEX-101'))
  *
  * Endpoints:
- * - POST /api/auth/login - Authenticate and get JWT token
- * - GET /api/auth/me - Get current user info (requires auth)
+ * - POST /api/v1/auth/signin - Headless sign-in: mints a Bearer PAT + sets the session cookie (ADR-0002)
+ * - GET /api/v1/me - Get current user info (requires auth)
  */
 
 import type { APIResponse } from '@playwright/test';
-import type { AuthErrorResponse, LoginPayload, TokenResponse, UserInfoResponse } from '@schemas/auth.types';
+import type { AuthErrorResponse, LoginPayload, SigninBody, SigninResponse, UserInfoResponse } from '@schemas/auth.types';
 import type { TestContextOptions } from '@TestContext';
 
 import { ApiBase } from '@api/ApiBase';
@@ -23,7 +23,7 @@ import { expect } from '@playwright/test';
 import { atc, step } from '@utils/decorators';
 
 // Re-export types for consumers that import from AuthApi
-export type { AuthErrorResponse, LoginPayload, TokenResponse, UserInfoResponse } from '@schemas/auth.types';
+export type { AuthErrorResponse, LoginPayload, SigninBody, SigninResponse, TokenResponse, UserInfoResponse } from '@schemas/auth.types';
 
 // ============================================
 // Auth API Component
@@ -53,6 +53,29 @@ export class AuthApi extends ApiBase {
     return [response, body];
   }
 
+  /**
+   * Precondition-setup helper: sign in and keep ONLY the session cookie.
+   *
+   * POST /api/v1/auth/signin answers with a Set-Cookie (`sb-<ref>-auth-token`)
+   * that Playwright stores in this component's shared APIRequestContext, so
+   * every component of the same fixture sends it from now on. The minted PAT
+   * is ignored here. Callers must also drop the Bearer on every component —
+   * use `ApiFixture.useCookieSession()`, which wraps this helper (ADR-0002).
+   *
+   * Needed by cookie-only routes (POST /api/v1/tokens) and by tests that
+   * assert cookie-session behavior.
+   */
+  @step
+  async signInWithCookieSession(credentials: SigninBody): Promise<SigninResponse> {
+    const [response, body] = await this.apiPOST<SigninResponse, SigninBody>(
+      this.config.auth.loginEndpoint,
+      { pat_expires_in_days: 1, ...credentials },
+    );
+    expect(response.status()).toBe(200);
+    expect(body.session.access_token).toBeDefined();
+    return body;
+  }
+
   // ============================================
   // ATCs - Complete Test Cases (ACTION + VERIFICATION)
   // ============================================
@@ -61,35 +84,35 @@ export class AuthApi extends ApiBase {
    * ATC: Authenticate with valid credentials - expects success (200)
    *
    * Complete flow:
-   * 1. POST credentials to /auth/login (ACTION)
-   * 2. GET /auth/me to confirm session is valid (VERIFICATION)
-   * 3. Validate token response and user info
+   * 1. POST credentials to /v1/auth/signin (ACTION)
+   * 2. GET /v1/me to confirm the minted PAT is valid (VERIFICATION)
+   * 3. Validate the PAT and user info
    *
-   * The token is automatically set for subsequent API requests.
+   * The minted PAT (`pat.token`) is set as the Bearer for subsequent API
+   * requests. A raw `session.access_token` is NOT accepted as a Bearer.
    *
-   * @param credentials - Email and password
-   * @returns Tuple with response, token data, and sent payload
+   * @param credentials - Email and password (plus optional PAT options)
+   * @returns Tuple with response, sign-in data, and sent payload
    */
   @atc('PROJ-101')
   async authenticateSuccessfully(
-    credentials: LoginPayload,
-  ): Promise<[APIResponse, TokenResponse, LoginPayload]> {
-    // ACTION: POST login credentials
-    const [response, body, sentPayload] = await this.apiPOST<TokenResponse, LoginPayload>(
+    credentials: SigninBody,
+  ): Promise<[APIResponse, SigninResponse, SigninBody]> {
+    // ACTION: POST sign-in credentials
+    const [response, body, sentPayload] = await this.apiPOST<SigninResponse, SigninBody>(
       this.config.auth.loginEndpoint,
       credentials,
     );
 
     // Fixed assertions - validates successful authentication
     expect(response.status()).toBe(200);
-    expect(body.access_token).toBeDefined();
-    expect(body.token_type).toBe('Bearer');
-    expect(body.expires_in).toBeGreaterThan(0);
+    expect(body.pat.token).toBeDefined();
+    expect(body.user.email).toBe(credentials.email);
 
-    // Store token for subsequent requests
-    this.setAuthToken(body.access_token);
+    // Store the PAT for subsequent requests
+    this.setAuthToken(body.pat.token);
 
-    // VERIFICATION: Confirm the session is valid via GET /auth/me
+    // VERIFICATION: Confirm the PAT is valid via GET /v1/me
     const [meResponse, meBody] = await this.getCurrentUser();
     expect(meResponse.status()).toBe(200);
     expect(meBody.user).toBeDefined();

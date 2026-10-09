@@ -5,7 +5,7 @@
  * When openapi-types.ts is available (after `bun run api:sync`),
  * migrate Custom Types to Schema/Endpoint Types using @openapi imports.
  *
- * Consumed by: tests/components/api/AuthApi.ts
+ * Consumed by: tests/components/api/AuthApi.ts, tests/setup/api-auth.setup.ts
  *
  * Migration example:
  *   import type { components, paths } from '@openapi';
@@ -13,6 +13,26 @@
  *   type LoginPath = paths['/api/auth/login']['post'];
  *   export type LoginRequest = LoginPath['requestBody']['content']['application/json'];
  */
+
+import type { components } from '@openapi';
+
+// ============================================================================
+// Schema Types - POST /api/v1/auth/signin (Bunkai headless sign-in, ADR-0002)
+// ============================================================================
+
+/**
+ * Sign-in request body. Omit `pat_scopes` to get the default PAT scopes
+ * (atc:read, atc:write, run:execute); `workspace:admin` is rejected here and
+ * must be minted through POST /api/v1/tokens with a workspace_id.
+ */
+export type SigninBody = components['schemas']['SigninBody'];
+
+/**
+ * Sign-in response: `session` holds the Supabase cookie-session tokens (also
+ * delivered via Set-Cookie), `pat` holds a freshly minted Bearer PAT for
+ * browserless requests. A raw session token is NOT accepted as a Bearer.
+ */
+export type SigninResponse = components['schemas']['SigninResponse'];
 
 // ============================================================================
 // Schema Types (from components.schemas)

@@ -63,7 +63,7 @@ Who authors: a human QA architect / lead directly, **or** an AI workflow that de
 
 | ADR | Title | Status | Supersedes | Superseded by |
 | --- | ----- | ------ | ---------- | ------------- |
-| _— none yet —_ | The first ADR is usually seeded during `/project-discovery` (SRS / infrastructure), `/framework-development` (framework evolution), or the first `/sprint-testing` · `/test-automation` ticket that forces a hard-to-reverse test-architecture decision. | | | |
+| [ADR-0002](ADR-0002-api-test-auth-pat-and-cookie-session.md) | API tests authenticate with the signin PAT by default and a per-test cookie session for cookie-only routes | Accepted | — | — |
 
 > Keep this table in sync whenever an ADR is added or its status changes. It is the fast index every session reads first.
 

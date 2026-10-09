@@ -14,6 +14,7 @@
  * 4. Initialize in constructor passing the options
  */
 
+import type { SigninBody, SigninResponse } from '@schemas/auth.types';
 import type { TestContextOptions } from '@TestContext';
 
 import { ApiBase } from '@api/ApiBase';
@@ -75,6 +76,20 @@ export class ApiFixture extends ApiBase {
     this.home.setAuthToken(token);
     this.modules.setAuthToken(token);
     this.runs.setAuthToken(token);
+  }
+
+  /**
+   * Switch every API component to cookie-session auth (ADR-0002).
+   *
+   * Signs in (the session cookie lands in the shared APIRequestContext) and
+   * drops the Bearer PAT injected from `.auth/api-state.json`, so requests
+   * authenticate by cookie only. Required for cookie-only routes such as
+   * POST /api/v1/tokens and for tests asserting cookie-session behavior.
+   */
+  async useCookieSession(credentials: SigninBody): Promise<SigninResponse> {
+    const body = await this.auth.signInWithCookieSession(credentials);
+    this.clearAuthToken();
+    return body;
   }
 
   /**
