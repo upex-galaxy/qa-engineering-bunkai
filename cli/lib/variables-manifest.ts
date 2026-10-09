@@ -280,6 +280,32 @@ export const VAR_MANIFEST: VarSpec[] = [
     obtainHint: 'test-user creds for your project-under-test; set when adapting the framework to your project.',
     note: 'Staging test user password (project-under-test example: rename or delete when adapting). Read by config.testUser, which fails by name when empty. CI secret in the suite workflows.',
   },
+  // PROJECT-OWNED: a second, unrelated staging identity for cross-tenant tests
+  // (a workspace the primary test user is NOT a member of). Optional — tests
+  // that need it skip by name when it is empty.
+  {
+    name: 'STAGING_USER_2_EMAIL',
+    destinations: ['local'],
+    secret: false,
+    scope: 'project',
+    usedBy: 'config.secondaryTestUser (config/variables.ts) -> cross-tenant integration tests (BK-818, BK-1111)',
+    required: false,
+    critical: false,
+    obtainHint: 'a second staging account that shares no workspace with STAGING_USER_EMAIL (email confirmed).',
+    note: 'Secondary staging test user email. Owns the foreign workspace used by tenant-isolation tests. Local only.',
+    schema: { type: 'email', example: 'qa.staging.2@example.test' },
+  },
+  {
+    name: 'STAGING_USER_2_PASSWORD',
+    destinations: ['local'],
+    secret: true,
+    scope: 'project',
+    usedBy: 'config.secondaryTestUser (config/variables.ts) -> cross-tenant integration tests (BK-818, BK-1111)',
+    required: false,
+    critical: false,
+    obtainHint: 'password of the STAGING_USER_2_EMAIL account.',
+    note: 'Secondary staging test user password. Local only.',
+  },
 
   // --- Xray (TMS, optional) ---
   // Core-gated: `tests/utils/jiraSync.ts` and the Xray CLI need these in the

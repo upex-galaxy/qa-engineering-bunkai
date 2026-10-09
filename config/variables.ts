@@ -58,6 +58,8 @@ const {
   LOCAL_USER_PASSWORD, // Required if TEST_ENV=local
   STAGING_USER_EMAIL, // Required if TEST_ENV=staging
   STAGING_USER_PASSWORD, // Required if TEST_ENV=staging
+  STAGING_USER_2_EMAIL, // Optional: second identity for cross-tenant tests (config.secondaryTestUser)
+  STAGING_USER_2_PASSWORD, // Optional: second identity for cross-tenant tests (config.secondaryTestUser)
 
   // === TMS Configuration ===
   TMS_PROVIDER = 'xray', // Used: config.tms.provider (jiraSync) - 'xray' | 'jira'
@@ -147,6 +149,15 @@ const userCredentialsMap: Record<Environment, { email: string, password: string 
   },
 };
 
+// Optional second identity that shares no workspace with the primary test
+// user. `null` when unset — cross-tenant tests skip by name instead of failing.
+const secondaryUserCredentialsMap: Record<Environment, { email: string, password: string } | null> = {
+  local: null,
+  staging: STAGING_USER_2_EMAIL && STAGING_USER_2_PASSWORD
+    ? { email: STAGING_USER_2_EMAIL, password: STAGING_USER_2_PASSWORD }
+    : null,
+};
+
 // ============================================
 // ENV DATA Mapping (hardcoded - not secrets because these are not sensitive data like credentials)
 // ============================================
@@ -190,6 +201,9 @@ export const config = {
 
   // Test User (configure in .env)
   testUser: envData.user,
+
+  // Secondary test user for cross-tenant tests (optional, null when unset)
+  secondaryTestUser: secondaryUserCredentialsMap[env.current],
 
   // TMS
   tms: {
